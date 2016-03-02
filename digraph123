@@ -36,7 +36,7 @@ def path_files(path):
             for f in files:
                 yield os.path.join(root, f)
     else:
-        raise "Neither file nor directory: '%s'" % path
+        raise ValueError("neither file nor directory: '%s'" % path)
 
 def file_arrow(path):
     m = ARROW_RE.match(path)
@@ -44,6 +44,8 @@ def file_arrow(path):
         tail = m.group(1).lower()
         head = m.group(2).lower()
         yield tail, head, path
+    else:
+        print "warning: ignoring non-matching file '%s'" % path
 
 def add_arrow(graph, arrow):
     tail, head, path = arrow
@@ -105,18 +107,24 @@ def main():
     )
     parser.add_argument(
             'path',
-            nargs='*',
+            nargs='+',
             help="An audio file or a directory containing audio files",
     )
     args = parser.parse_args()
 
     files = []
     for p in args.path:
-        files.extend(path_files(p))
+        try:
+            files.extend(path_files(p))
+        except ValueError, e:
+            parser.error(e)
 
     arrows = []
     for f in files:
         arrows.extend(file_arrow(f))
+
+    if not arrows:
+        parser.error("no matching audio files found")
 
     graph = {}
     for a in arrows:

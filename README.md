@@ -6,7 +6,7 @@ digraph123 - play a random walk of a directed graph made of audio files
 
 ## Synopsis
 
-**digraph123** [-h] [--mute] [--max MAX] [path [path ...]]
+**digraph123** [-h] [--mute] [--max MAX] path [path ...]
 
 ### Arguments
 
