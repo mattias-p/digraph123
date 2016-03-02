@@ -8,8 +8,6 @@ digraph123 - play a random walk of a directed graph made of audio files
 
 **digraph123** [-h] [--mute] [--max MAX] path [path ...]
 
-### Arguments
-
 | Argument       | Description                                                                                                              |
 |----------------|--------------------------------------------------------------------------------------------------------------------------|
 | *path*         | An audio file or a directory containing audio files. Files whose names don't match the *File name format* are ignored. |
