@@ -23,8 +23,8 @@ def path_files(path):
 def file_arrow(path):
     m = EDGE_RE.match(path)
     if m:
-        tail = m.group(1)
-        head = m.group(2)
+        tail = m.group(1).lower()
+        head = m.group(2).lower()
         yield tail, head, path
 
 def add_arrow(graph, arrow):
