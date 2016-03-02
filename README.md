@@ -1,4 +1,4 @@
-# Digraph123
+# digraph123
 
 ## Name
 
