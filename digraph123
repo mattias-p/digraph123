@@ -8,7 +8,7 @@ import argparse
 import itertools
 
 END_MUSIC_EVENT = pygame.USEREVENT + 0    # ID for music Event
-EDGE_RE = re.compile('.*/([^-]+)-([^-]+)(?:-.*)?\.(?:ogg|mp3)', re.IGNORECASE)
+ARROW_RE = re.compile('.*/([^-]+)-([^-]+)(?:-.*)?\.(?:ogg|mp3)', re.IGNORECASE)
 
 def path_files(path):
     if os.path.isfile(path):
@@ -21,7 +21,7 @@ def path_files(path):
         raise "Neither file nor directory: '%s'" % path
 
 def file_arrow(path):
-    m = EDGE_RE.match(path)
+    m = ARROW_RE.match(path)
     if m:
         tail = m.group(1).lower()
         head = m.group(2).lower()
@@ -105,13 +105,13 @@ def main():
         graph = add_arrow(graph, a)
 
     if 'start' in graph:
-        node = 'start'
+        start = 'start'
     elif arrows:
-        node = random.choice(arrows)[0]
+        start = random.choice(arrows)[0]
     else:
         sys.exit(0)
 
-    playlist = walk(graph, node)
+    playlist = walk(graph, start)
 
     if args.max is not None:
         playlist = take(args.max, playlist)
