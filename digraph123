@@ -117,7 +117,6 @@ def main():
         playlist = take(args.max, playlist)
 
     pygame.init()
-    END_MUSIC_EVENT = pygame.USEREVENT + 0    # ID for music Event
     pygame.mixer.music.set_endevent(END_MUSIC_EVENT)
 
     try:
