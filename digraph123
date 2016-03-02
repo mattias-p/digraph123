@@ -45,7 +45,7 @@ def file_arrow(path):
         head = m.group(2).lower()
         yield tail, head, path
     else:
-        print "warning: ignoring non-matching file '%s'" % path
+        sys.stderr.write("warning: ignoring non-matching file '%s'\n" % path)
 
 def add_arrow(graph, arrow):
     tail, head, path = arrow
