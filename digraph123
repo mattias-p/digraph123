@@ -47,6 +47,7 @@ def play(playlist):
         path = playlist.next()
     except StopIteration:
         return
+
     pygame.mixer.music.load(path)
     pygame.mixer.music.play()
 
@@ -69,62 +70,65 @@ def muted(playlist):
     for path in playlist:
         print path
 
-parser = argparse.ArgumentParser(
-        description="Play a random walk of a directed graph made of audio files",
-        epilog="Terminate %(prog)s by pressing Ctrl+C",
-)
-parser.add_argument(
-        '--mute',
-        action='store_true',
-        help="Don't play audio, just print audio files",
-)
-parser.add_argument(
-        '--max',
-        type=int,
-        help="Maximum number of arrows to traverse",
-)
-parser.add_argument(
-        'path',
-        nargs='*',
-        help="An audio file or a directory containing audio files",
-)
-args = parser.parse_args()
+def main():
+    parser = argparse.ArgumentParser(
+            description="Play a random walk of a directed graph made of audio files",
+            epilog="Terminate %(prog)s by pressing Ctrl+C",
+    )
+    parser.add_argument(
+            '--mute',
+            action='store_true',
+            help="Don't play audio, just print audio files",
+    )
+    parser.add_argument(
+            '--max',
+            type=int,
+            help="Maximum number of arrows to traverse",
+    )
+    parser.add_argument(
+            'path',
+            nargs='*',
+            help="An audio file or a directory containing audio files",
+    )
+    args = parser.parse_args()
 
-files = []
-for p in args.path:
-    files.extend(path_files(p))
+    files = []
+    for p in args.path:
+        files.extend(path_files(p))
 
-arrows = []
-for f in files:
-    arrows.extend(file_arrow(f))
+    arrows = []
+    for f in files:
+        arrows.extend(file_arrow(f))
 
-graph = {}
-for a in arrows:
-    graph = add_arrow(graph, a)
+    graph = {}
+    for a in arrows:
+        graph = add_arrow(graph, a)
 
-if 'start' in graph:
-    node = 'start'
-elif arrows:
-    node = random.choice(arrows)[0]
-else:
-    sys.exit(0)
-
-pygame.init()
-
-END_MUSIC_EVENT = pygame.USEREVENT + 0    # ID for music Event
-pygame.mixer.music.set_endevent(END_MUSIC_EVENT)
-
-playlist = walk(graph, node)
-
-if args.max is not None:
-    playlist = take(args.max, playlist)
-
-try:
-    if args.mute:
-        muted(playlist)
+    if 'start' in graph:
+        node = 'start'
+    elif arrows:
+        node = random.choice(arrows)[0]
     else:
-        play(playlist)
-except KeyboardInterrupt:
-    pass
+        sys.exit(0)
 
-pygame.quit()
+    playlist = walk(graph, node)
+
+    if args.max is not None:
+        playlist = take(args.max, playlist)
+
+    pygame.init()
+    END_MUSIC_EVENT = pygame.USEREVENT + 0    # ID for music Event
+    pygame.mixer.music.set_endevent(END_MUSIC_EVENT)
+
+    try:
+        if args.mute:
+            muted(playlist)
+        else:
+            play(playlist)
+    except KeyboardInterrupt:
+        pass
+
+    pygame.quit()
+
+if __name__ == '__main__':
+    main()
