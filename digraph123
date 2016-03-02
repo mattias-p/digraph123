@@ -116,18 +116,18 @@ def main():
     if args.max is not None:
         playlist = take(args.max, playlist)
 
-    pygame.init()
-    pygame.mixer.music.set_endevent(END_MUSIC_EVENT)
-
     try:
         if args.mute:
             muted(playlist)
         else:
+            pygame.init()
+            pygame.mixer.music.set_endevent(END_MUSIC_EVENT)
+
             play(playlist)
+
+            pygame.quit()
     except KeyboardInterrupt:
         pass
-
-    pygame.quit()
 
 if __name__ == '__main__':
     main()
