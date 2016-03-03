@@ -16,7 +16,8 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#
+
+from __future__ import print_function
 import argparse
 import os
 import pygame
@@ -28,13 +29,21 @@ import textwrap
 END_MUSIC_EVENT = pygame.USEREVENT + 0    # ID for music Event
 ARROW_RE = re.compile('.*/([^-]+)-([^-]+)(?:-.*)?\.(?:ogg|mp3)', re.IGNORECASE)
 
+def feedback(message):
+    print(message, file=sys.stderr)
+
+def fatal(message):
+    feedback(message)
+    sys.exit(1)
+
 def path_files(path):
     if os.path.isfile(path):
         yield path
     elif os.path.isdir(path):
-        for root, dirs, files in os.walk(path):
-            for f in files:
-                yield os.path.join(root, f)
+        for basename in os.listdir(path):
+            f = os.path.join(path, basename)
+            if os.path.isfile(f):
+                yield f
     else:
         raise ValueError("neither file nor directory: '%s'" % path)
 
@@ -44,8 +53,6 @@ def file_arrow(path):
         tail = m.group(1).lower()
         head = m.group(2).lower()
         yield tail, head, path
-    else:
-        sys.stderr.write("warning: ignoring non-matching file '%s'\n" % path)
 
 def add_arrow(graph, arrow):
     tail, head, path = arrow
@@ -76,7 +83,7 @@ def play(playlist):
         event = pygame.event.poll()
         if event.type == END_MUSIC_EVENT:
             if path:
-                print path
+                print(path)
             else:
                 break
             try:
@@ -88,7 +95,7 @@ def play(playlist):
 
 def muted(playlist):
     for path in playlist:
-        print path
+        print(path)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -108,6 +115,8 @@ def main():
                     the HEAD node is associated with each resulting file and a directed
                     graph (digraph) is constructed from the arrows.
 
+                    Information about all the arrows are printed to stderr.
+
                  2. An initial *current node* is selected. If a node has been labeled
                     `start`, this node is selected. Otherwise, the tail node of a random
                     arrow is selected.
@@ -118,6 +127,8 @@ def main():
 
                     2. The audio file associated with the selected arrow is played until it
                        ends. (Unless *--mute* is specified)
+
+                       The path of the audio file is printed to stdout.
 
                     3. The head node of the selected arrow becomes the new *current node*.
 
@@ -155,10 +166,16 @@ def main():
         arrows.extend(file_arrow(f))
 
     if not arrows:
-        parser.error("no matching audio files found")
+        fatal("no matching audio files found")
+
+    twidth, hwidth = 0, 0
+    for tail, head, _ in arrows:
+        twidth = max(twidth, len(tail))
+        hwidth = max(hwidth, len(head))
 
     graph = {}
-    for a in arrows:
+    for a in sorted(arrows):
+        feedback("found arrow: {:{twidth}} -> {:{hwidth}}  ({})".format(*a, twidth=twidth, hwidth=hwidth))
         graph = add_arrow(graph, a)
 
     if 'start' in graph:

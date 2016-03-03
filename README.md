@@ -54,6 +54,13 @@ from https://www.jamendo.com/community/short/tracks.
 
         digraph123 path/to/medley-example
 
+    First, feedback about all found arrows are printed to stderr. Use this
+    information to verify that the constructed digraph matches your
+    expectations.
+
+    As an arrow begins to be traversed, the path of its associated audio file is
+    printed to stdout. Use this to store a playlist of the traversal.
+
 
 ### Learn more
 
