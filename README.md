@@ -75,20 +75,8 @@ Troubleshooting
 Contributing
 ------------
 
-### As a user:
-
  * Post bug reports and/or feature requests to the [issue tracker](https://github.com/mattias-p/digraph123/issues).
- * Have fun with it.
-
-
-### As a musician:
-
  * Compose, record and publish and spread the word about digraph shaped audio.
- * Have fun with it.
-
-
-### As a coder:
-
  * Look through the [issue tracker](https://github.com/mattias-p/digraph123/issues)
    for things to do and make pull requests to the [master branch](https://github.com/mattias-p/digraph123/tree/master).
  * Have fun with it.
