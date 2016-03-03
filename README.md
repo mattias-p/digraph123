@@ -57,7 +57,7 @@ from https://www.jamendo.com/community/short/tracks.
 
 ### Learn more
 
-Use the `--help` option for details on its usage and operation:
+Use the `--help` option for details on usage and operation:
 
     digraph123 --help
 
@@ -90,8 +90,9 @@ Contributing
 
 ### As a coder:
 
- * Look through the *issue tracker*.
- * Make pull requests at the *project homepage*.
+ * Look through the [issue tracker](https://github.com/mattias-p/digraph123/issues)
+   for things to do.
+ * Make pull requests at the [master branch](https://github.com/mattias-p/digraph123/tree/master).
  * Have fun with it.
 
 
