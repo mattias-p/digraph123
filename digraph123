@@ -17,13 +17,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
-import pygame
-import sys
-import os
-import re
-import random
 import argparse
-import itertools
+import os
+import pygame
+import random
+import re
+import sys
+import textwrap
 
 END_MUSIC_EVENT = pygame.USEREVENT + 0    # ID for music Event
 ARROW_RE = re.compile('.*/([^-]+)-([^-]+)(?:-.*)?\.(?:ogg|mp3)', re.IGNORECASE)
@@ -92,13 +92,42 @@ def muted(playlist):
 
 def main():
     parser = argparse.ArgumentParser(
-            description="Play a random walk of a directed graph made of audio files",
-            epilog="Terminate %(prog)s by pressing Ctrl+C",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Play an audio recording shaped like a directed graph by means of random walk.",
+        epilog=textwrap.dedent("""\
+            file name format:
+                The file name format matches the patterns TAIL-HEAD.EXT or
+                TAIL-HEAD-DESCRIPTION.EXT. TAIL and HEAD are node labels. DESCRIPTION is
+                ignored. EXT indicates the file format and is either `ogg` or `mp3`. HEAD,
+                TAIL and EXT are case insensitive.
+
+            operation:
+                %(prog)s performs the following steps:
+
+                 1. The *path* arguments are processed. An arrow going from the TAIL node to
+                    the HEAD node is associated with each resulting file and a directed
+                    graph (digraph) is constructed from the arrows.
+
+                 2. An initial *current node* is selected. If a node has been labeled
+                    `start`, this node is selected. Otherwise, the tail node of a random
+                    arrow is selected.
+
+                 3. While the *current node* has at least one outgoing arrow, repeat:
+
+                    1. A random outgoing arrow from the *current node* is selected.
+
+                    2. The audio file associated with the selected arrow is played until it
+                       ends. (Unless *--mute* is specified)
+
+                    3. The head node of the selected arrow becomes the new *current node*.
+
+                Terminate %(prog)s by pressing Ctrl+C.
+        """),
     )
     parser.add_argument(
             '--mute',
             action='store_true',
-            help="Don't play audio, just print audio files",
+            help="Don't play audio, just print audio file paths",
     )
     parser.add_argument(
             '--max',
@@ -108,7 +137,9 @@ def main():
     parser.add_argument(
             'path',
             nargs='+',
-            help="An audio file or a directory containing audio files",
+            help="""\
+                An audio file or a directory containing audio files. Audio files
+                whose names don't match the *file name format* are ignored.""",
     )
     args = parser.parse_args()
 
