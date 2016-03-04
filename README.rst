@@ -8,7 +8,7 @@ Play digraph_ shaped audio recordings using random walk.
 Introduction
 ------------
 A traditional audio recording has a single timeline from start to end. In the
-language of directed graphs (digraphs), this can be described using two nodes
+language of directed graphs (digraphs) this can be described using two nodes
 labeled "start" and "end" and an arrow going from "start" to "end". Another type
 of audio recording combines an intro part and a loop part. This can be described
 using two nodes labeled "start" and "loop" and two arrows - one going from
