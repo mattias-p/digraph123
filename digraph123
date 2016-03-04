@@ -27,7 +27,7 @@ import sys
 import textwrap
 
 END_MUSIC_EVENT = pygame.USEREVENT + 0    # ID for music Event
-ARROW_RE = re.compile('.*/([^-]+)-([^-]+)(?:-.*)?\.(?:ogg|mp3)', re.IGNORECASE)
+ARROW_RE = re.compile('([^-]+)-([^-]+)(?:-.*)?\.(?:ogg|mp3)', re.IGNORECASE)
 
 def feedback(message):
     print(message, file=sys.stderr)
@@ -48,7 +48,7 @@ def path_files(path):
         raise ValueError("neither file nor directory: '%s'" % path)
 
 def file_arrow(path):
-    m = ARROW_RE.match(path)
+    m = ARROW_RE.match(os.path.basename(path))
     if m:
         tail = m.group(1).lower()
         head = m.group(2).lower()
