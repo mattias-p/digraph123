@@ -123,14 +123,29 @@ License
 
 TODO
 ----
-* Split code into script and library
-* Proper pip support
-* Create a test suite
-* Include Makefile
-* Write code documentation
-* Add Sphinx support
-* Use pep8
-* Look into Click
+
+1. Getting started
+
+   * Include example recording
+   * Rewrite getting started section
+
+2. Installation
+
+   * Split code into script and library
+   * Proper pip support
+   * Create a test suite
+   * Include Makefile
+   * Update installation instruction
+
+3. Documentation
+
+   * Document library and script
+   * Support Sphinx
+
+4. Code
+
+   * Use pep8
+   * Look into Click
 
 
 .. _console:       https://en.wikipedia.org/wiki/Command-line_interface
