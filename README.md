@@ -1,5 +1,5 @@
-digraph123
-==========
+[digraph123](https://github.com/mattias-p/digraph123)
+=====================================================
 
 Play [digraph](https://en.wikipedia.org/wiki/Directed_graph) shaped audio
 recordings using random walk.
@@ -19,8 +19,6 @@ traverses recordings in this format from the start node using random walk. In
 its default mode of operation it plays the part associated with each traversed
 arrow. Alternatively it can be muted to generate playlists of the traversed
 parts at a rate not limited by the playback of individual parts.
-
-Project homepage: https://github.com/mattias-p/digraph123
 
 
 Installation
