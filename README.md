@@ -1,9 +1,9 @@
 digraph123
 ==========
 
-Play audio recordings shaped like [directed graphs](https://en.wikipedia.org/wiki/Directed_graph)
-(digraphs) by means of random walk. Contrast this to the traditional playing of
-linear audio recordings from start to end.
+Play [digraph](https://en.wikipedia.org/wiki/Directed_graph) shaped audio
+recordings using random walk. Contrast this to the traditional playing of linear
+audio recordings from start to end.
 
 Project homepage: https://github.com/mattias-p/digraph123
 
@@ -34,7 +34,7 @@ is to direct you to create your own non-linear medley example.
  1. Create a directory called `medley-example`.
 
  2. Download a dozen tracks of less than ten seconds each into `medley-example`
-from https://www.jamendo.com/community/short/tracks.
+    from https://www.jamendo.com/community/short/tracks.
 
  3. Rename the files to:
     * down-north.mp3
