@@ -120,6 +120,19 @@ License
 | You should have received a copy of the GNU General Public License
 | along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+
+TODO
+----
+* Split code into script and library
+* Proper pip support
+* Create a test suite
+* Include Makefile
+* Write code documentation
+* Add Sphinx support
+* Use pep8
+* Look into Click
+
+
 .. _console:       https://en.wikipedia.org/wiki/Command-line_interface
 .. _digraph123:    https://github.com/mattias-p/digraph123
 .. _digraph:       https://en.wikipedia.org/wiki/Directed_graph
