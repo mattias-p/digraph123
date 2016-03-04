@@ -12,7 +12,7 @@ using two nodes labeled "start" and "loop" and two arrows - one going from
 "start" to "loop" and another going from "loop" back onto itself.
 
 *Digraph shaped audio recording* generalizes the above concept to the set of all
-non-empty directed graphs with one of their nodes designated the *start node*.
+non-empty digraphs with one of their nodes designated the *start node*.
 
 **digraph123** defines a format for digraph shaped audio recordings and
 traverses recordings in this format from the start node using random walk. In
