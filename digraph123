@@ -29,23 +29,31 @@ import textwrap
 END_MUSIC_EVENT = pygame.USEREVENT + 0    # ID for music Event
 ARROW_RE = re.compile('([^-]+)-([^-]+)(?:-.*)?\.(?:ogg|mp3)', re.IGNORECASE)
 
-def feedback(message):
-    print(message, file=sys.stderr)
+def build_graph(files, start_node='start'):
+    arrows = []
+    for f in files:
+        arrows.extend(file_arrow(f))
 
-def fatal(message):
-    feedback(message)
-    sys.exit(1)
+    graph = {}
+    for a in arrows:
+        graph = add_arrow(graph, a)
 
-def path_files(path):
-    if os.path.isfile(path):
-        yield path
-    elif os.path.isdir(path):
-        for basename in os.listdir(path):
-            f = os.path.join(path, basename)
-            if os.path.isfile(f):
-                yield f
-    else:
-        raise ValueError("neither file nor directory: '%s'" % path)
+    if start_node not in graph:
+        graph = add_start_node(graph, start_node)
+
+    return graph
+
+def print_graph(graph, file):
+    twidth, hwidth = 0, 0
+    for tail in graph:
+        for head, _ in graph[tail]:
+            twidth = max(twidth, len(tail))
+            hwidth = max(hwidth, len(head))
+
+    for tail in sorted(graph):
+        for head, path in sorted(graph[tail]):
+            path_string = path is None and 'immediate' or 'play: ' + path
+            print("{:{twidth}} -> {:{hwidth}}  {}".format(tail, head, path_string, twidth=twidth, hwidth=hwidth), file=file)
 
 def file_arrow(path):
     m = ARROW_RE.match(os.path.basename(path))
@@ -60,14 +68,26 @@ def add_arrow(graph, arrow):
     graph.setdefault(head, [])
     return graph
 
+def add_start_node(graph, node='start'):
+    for head in list(graph.keys()):
+        graph = add_arrow(graph, (node, head, None))
+    return graph
+
+def walk(graph, node='start'):
+    while graph[node]:
+        node, path = random.choice(graph[node])
+        if path is not None:
+            yield path
+
+def dir_files(path):
+    for basename in os.listdir(path):
+        f = os.path.join(path, basename)
+        if os.path.isfile(f):
+            yield f
+
 def take(n, it):
     for i in range(0, n):
         yield it.next()
-
-def walk(graph, node):
-    while graph[node]:
-        node, path = random.choice(graph[node])
-        yield path
 
 def play(playlist):
     try:
@@ -155,37 +175,19 @@ def main():
     args = parser.parse_args()
 
     files = []
-    for p in args.path:
-        try:
-            files.extend(path_files(p))
-        except ValueError, e:
-            parser.error(e)
+    for path in args.path:
+        if os.path.isdir(path):
+            files.extend(dir_files(path))
+        elif os.path.isfile(path):
+            files.append(path)
+        else:
+            parser.error("neither file nor directory: '%s'" % path)
 
-    arrows = []
-    for f in files:
-        arrows.extend(file_arrow(f))
+    graph = build_graph(files)
 
-    if not arrows:
-        fatal("no matching audio files found")
+    print_graph(graph, file=sys.stderr)
 
-    twidth, hwidth = 0, 0
-    for tail, head, _ in arrows:
-        twidth = max(twidth, len(tail))
-        hwidth = max(hwidth, len(head))
-
-    graph = {}
-    for a in sorted(arrows):
-        feedback("found arrow: {:{twidth}} -> {:{hwidth}}  ({})".format(*a, twidth=twidth, hwidth=hwidth))
-        graph = add_arrow(graph, a)
-
-    if 'start' in graph:
-        start = 'start'
-    elif arrows:
-        start = random.choice(arrows)[0]
-    else:
-        sys.exit(0)
-
-    playlist = walk(graph, start)
+    playlist = walk(graph)
 
     if args.max is not None:
         playlist = take(args.max, playlist)
