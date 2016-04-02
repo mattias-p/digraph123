@@ -1,0 +1,13 @@
+[package]
+name = "digraph345"
+version = "0.1.0"
+authors = ["Mattias Päivärinta <mattias.paivarinta@doxwork.com>"]
+
+[dependencies]
+libc = "0.2.8"
+ogg-sys = "0.0.9"
+clap = "2.2"
+cpal = "0.2"
+rand = "0.3"
+regex = "0.1"
+vorbis = { path = "../vorbis-rs" }
