@@ -10,15 +10,23 @@ use regex::Regex;
 use std::error::Error;
 use std::fs::File;
 use std::io::{Write, stderr};
-use std::path::Path;
+use std::num::ParseIntError;
+use std::path::{Path, PathBuf};
 use std::process;
-use std::time;
+use std::str::FromStr;
 use std::thread;
-use std::collections::HashMap;
+use std::time;
 
 enum MyError {
+    ParseInt(ParseIntError),
     Vorbis(vorbis::VorbisError),
     Composite(Vec<MyError>),
+}
+
+impl From<ParseIntError> for MyError {
+    fn from(err: ParseIntError) -> MyError {
+        MyError::ParseInt(err)
+    }
 }
 
 impl From<vorbis::VorbisError> for MyError {
@@ -127,6 +135,94 @@ impl Stream for Track {
             .unwrap_or((min, max))
     }
 }
+
+struct Digraph(Vec<Vec<(usize, Vec<PathBuf>)>>);
+
+impl Digraph {
+    fn random_walk<'a>(&'a self, state: usize, rng: Box<Rng>) -> RandomWalk<'a> {
+        RandomWalk {
+            state: state,
+            digraph: &self,
+            rng: rng,
+        }
+    }
+}
+
+struct RandomWalk<'a> {
+    state: usize,
+    digraph: &'a Digraph,
+    rng: Box<Rng>,
+}
+
+impl<'a> Iterator for RandomWalk<'a> {
+    type Item = &'a Path;
+    fn next(&mut self) -> Option<&'a Path> {
+        let ref mut rng = self.rng;
+        let cells = self.digraph.0.get(self.state);
+        if let Some(&(new_state, ref arrows)) = cells.and_then(|cells| rng.choose(cells)) {
+            self.state = new_state;
+            rng.choose(arrows.as_slice()).map(|path| path.as_path())
+        } else {
+            None
+        }
+    }
+}
+
+fn vorbis_track(path: &Path) -> Result<Track, MyError> {
+    let display = path.display();
+    let file = match File::open(&path) {
+        Err(why) => panic!("Couldn't open {}: {}", display, Error::description(&why)),   
+        Ok(file) => file,
+    };
+
+    let decoder = try!(vorbis::Decoder::new(file));
+    let splice_point = try!(decoder.get_comment("SPLICEPOINT"));
+    let splice_point = splice_point.iter()
+                                   .fold(Ok(None), |acc, value| {
+                                       let res: Result<_, MyError> = acc.and_then(|acc| {
+                                           let value = try!(u64::from_str(value));
+                                           Ok(acc.map(|acc| std::cmp::min(acc, value))
+                                                 .or(Some(value)))
+                                       });
+                                       res
+                                   });
+    let splice_point = try!(splice_point);
+    let stream = VorbisStream {
+        offset: 0,
+        packet: vec![],
+        next_packet: Some(vec![]),
+        packets: decoder.into_packets(),
+    };
+    Ok(Track {
+        stream: Box::new(stream),
+        splice_point: splice_point,
+    })
+}
+
+struct Player {
+    track: Track,
+    play_list: Box<Iterator<Item = Result<Track, MyError>>>,
+}
+
+impl Player {
+    fn next_track(&mut self) -> Option<Result<Box<Stream>, MyError>> {
+        self.play_list.next().map(|track| {
+            let new_track = try!(track);
+            let old_track = std::mem::replace(&mut self.track, new_track);
+            Ok(old_track.into_stream())
+        })
+    }
+}
+
+impl Stream for Player {
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.track.size_hint()
+    }
+    fn next_slice(&mut self, size: usize) -> Result<&[f32], MyError> {
+        self.track.next_slice(size)
+    }
+}
+
 
 trait MultiStream {
     fn each_next_slice(&mut self, size: usize, f: &mut FnMut(&[f32])) -> Result<(), MyError>;
