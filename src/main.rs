@@ -29,27 +29,32 @@ impl From<vorbis::VorbisError> for MyError {
 
 trait Stream {
     fn size_hint(&self) -> (usize, Option<usize>);
-    fn next_slice(&mut self, usize) -> Result<&[i16], MyError>;
+    fn next_slice(&mut self, usize) -> Result<&[f32], MyError>;
 }
 
 pub struct VorbisStream {
     offset: usize,
-    packet: Vec<i16>,
-    next_packet: Option<Vec<i16>>,
+    packet: Vec<f32>,
+    next_packet: Option<Vec<f32>>,
     packets: vorbis::PacketsIntoIter<File>,
 }
 
 impl Stream for VorbisStream {
-    fn next_slice(&mut self, size: usize) -> Result<&[i16], MyError> {
+    fn next_slice(&mut self, size: usize) -> Result<&[f32], MyError> {
         if self.offset == self.packet.len() {
-            let next_packet = if let Some(next_packet) = self.packets.next() {
-                Some(try!(next_packet).data)
-            } else {
-                None
-            };
-            if let Some(packet) = std::mem::replace(&mut self.next_packet, next_packet) {
-                self.packet = packet;
+            if let Some(next_packet) = std::mem::replace(&mut self.next_packet, None) {
+                let mut recycled = std::mem::replace(&mut self.packet, next_packet);
+                let recycled_len = recycled.len();
                 self.offset = 0;
+                if let Some(vorbis_packet) = self.packets.next() {
+                    let data = try!(vorbis_packet).data;
+                    if recycled.len() < data.len() {
+                        recycled.reserve_exact(data.len() - recycled_len);
+                    }
+                    recycled.truncate(0);
+                    recycled.extend(data.iter().map(|value| *value as f32));
+                    self.next_packet = Some(recycled);
+                }
             }
         }
         let (min, _) = self.size_hint();
@@ -97,7 +102,7 @@ impl Track {
 }
 
 impl Stream for Track {
-    fn next_slice(&mut self, size: usize) -> Result<&[i16], MyError> {
+    fn next_slice(&mut self, size: usize) -> Result<&[f32], MyError> {
         let (min, _) = self.size_hint();
         if size > min {
             panic!("out of bounds");
@@ -124,14 +129,14 @@ impl Stream for Track {
 }
 
 trait MultiStream {
-    fn each_next_slice(&mut self, size: usize, f: &mut FnMut(&[i16])) -> Result<(), MyError>;
+    fn each_next_slice(&mut self, size: usize, f: &mut FnMut(&[f32])) -> Result<(), MyError>;
     fn size_hint(&self) -> (usize, Option<usize>);
 }
 
 struct SimpleStream(Box<Stream>);
 
 impl MultiStream for SimpleStream {
-    fn each_next_slice(&mut self, size: usize, f: &mut FnMut(&[i16])) -> Result<(), MyError> {
+    fn each_next_slice(&mut self, size: usize, f: &mut FnMut(&[f32])) -> Result<(), MyError> {
         f(try!(self.0.next_slice(size)));
         Ok(())
     }
@@ -144,7 +149,7 @@ struct Ensamble(Vec<Box<MultiStream>>);
 
 impl Ensamble {
     fn mix_next_slice(&mut self, buf: &mut [f32], c: f32) -> Result<(), MyError> {
-        let c = (self.0.len() as f32) / (i16::max_value() as f32);
+        let c = 1.0 / self.0.len() as f32;
         let size = buf.len();
         for out in buf.iter_mut() {
             *out = 0.0;
@@ -152,14 +157,14 @@ impl Ensamble {
         self.each_next_slice(size,
                              &mut |slice| {
                                  for (out, value) in buf.iter_mut().zip(slice) {
-                                     *out += (*value as f32) * c;
+                                     *out += c * *value;
                                  }
                              })
     }
 }
 
 impl MultiStream for Ensamble {
-    fn each_next_slice(&mut self, size: usize, f: &mut FnMut(&[i16])) -> Result<(), MyError> {
+    fn each_next_slice(&mut self, size: usize, f: &mut FnMut(&[f32])) -> Result<(), MyError> {
         let mut errors = vec![];
         for multi_stream in self.0.iter_mut() {
             match multi_stream.as_mut().each_next_slice(size, f) {
