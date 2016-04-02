@@ -38,6 +38,7 @@ impl From<vorbis::VorbisError> for MyError {
 trait Stream {
     fn size_hint(&self) -> (usize, Option<usize>);
     fn next_slice(&mut self, usize) -> Result<&[f32], MyError>;
+    fn get_tail(&mut self) -> Option<Result<Box<Stream>, MyError>>;
 }
 
 pub struct VorbisStream {
@@ -91,6 +92,28 @@ impl Stream for VorbisStream {
         };
         (min, max)
     }
+
+    fn get_tail(&mut self) -> Option<Result<Box<Stream>, MyError>> {
+        None
+    }
+}
+
+struct EmptyStream([f32; 0]);
+
+impl Stream for EmptyStream {
+    fn next_slice(&mut self, size: usize) -> Result<&[f32], MyError> {
+        if size == 0 {
+            Ok(&self.0)
+        } else {
+            panic!("out of bounds");
+        }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, Some(0))
+    }
+    fn get_tail(&mut self) -> Option<Result<Box<Stream>, MyError>> {
+        None
+    }
 }
 
 struct Track {
@@ -133,6 +156,20 @@ impl Stream for Track {
                 }))
             })
             .unwrap_or((min, max))
+    }
+
+    fn get_tail(&mut self) -> Option<Result<Box<Stream>, MyError>> {
+        let (_, max) = self.size_hint();
+        if max.map(|max| max == 0).unwrap_or(false) {
+            let tail = std::mem::replace(&mut self.stream, Box::new(EmptyStream([])));
+            if tail.size_hint().0 > 0 {
+                Some(Ok(tail))
+            } else {
+                None
+            }
+        } else {
+            panic!("unconsumed data");
+        }
     }
 }
 
@@ -204,16 +241,6 @@ struct Player {
     play_list: Box<Iterator<Item = Result<Track, MyError>>>,
 }
 
-impl Player {
-    fn next_track(&mut self) -> Option<Result<Box<Stream>, MyError>> {
-        self.play_list.next().map(|track| {
-            let new_track = try!(track);
-            let old_track = std::mem::replace(&mut self.track, new_track);
-            Ok(old_track.into_stream())
-        })
-    }
-}
-
 impl Stream for Player {
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.track.size_hint()
@@ -221,53 +248,75 @@ impl Stream for Player {
     fn next_slice(&mut self, size: usize) -> Result<&[f32], MyError> {
         self.track.next_slice(size)
     }
-}
-
-
-trait MultiStream {
-    fn each_next_slice(&mut self, size: usize, f: &mut FnMut(&[f32])) -> Result<(), MyError>;
-    fn size_hint(&self) -> (usize, Option<usize>);
-}
-
-struct SimpleStream(Box<Stream>);
-
-impl MultiStream for SimpleStream {
-    fn each_next_slice(&mut self, size: usize, f: &mut FnMut(&[f32])) -> Result<(), MyError> {
-        f(try!(self.0.next_slice(size)));
-        Ok(())
-    }
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.0.size_hint()
+    fn get_tail(&mut self) -> Option<Result<Box<Stream>, MyError>> {
+        self.track.get_tail().map(|tail| {
+            if self.track.size_hint().0 == 0 {
+                match self.play_list.next() {
+                    Some(Ok(track)) => {
+                        self.track = track;
+                    }
+                    Some(Err(track)) => {}
+                    None => (),
+                }
+            }
+            tail
+        })
     }
 }
 
-struct Ensamble(Vec<Box<MultiStream>>);
+struct Mixer {
+    coefficient: f32,
+    streams: Vec<Box<Stream>>,
+}
 
-impl Ensamble {
-    fn mix_next_slice(&mut self, buf: &mut [f32], c: f32) -> Result<(), MyError> {
-        let c = 1.0 / self.0.len() as f32;
+impl Mixer {
+    fn mix_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
         let size = buf.len();
+        let coefficient = self.coefficient;
         for out in buf.iter_mut() {
             *out = 0.0;
         }
         self.each_next_slice(size,
                              &mut |slice| {
                                  for (out, value) in buf.iter_mut().zip(slice) {
-                                     *out += c * *value;
+                                     *out += coefficient * *value;
                                  }
                              })
     }
-}
-
-impl MultiStream for Ensamble {
     fn each_next_slice(&mut self, size: usize, f: &mut FnMut(&[f32])) -> Result<(), MyError> {
         let mut errors = vec![];
-        for multi_stream in self.0.iter_mut() {
-            match multi_stream.as_mut().each_next_slice(size, f) {
+        for stream in self.streams.iter_mut() {
+            match stream.next_slice(size) {
                 Err(err) => errors.push(err),
-                _ => (),
-            };
+                Ok(slice) => f(slice),
+            }
         }
+
+        let mut new_tails = vec![];
+        let mut empties = vec![];
+        for (i, stream) in self.streams.iter_mut().enumerate() {
+            if stream.size_hint().0 == 0 {
+                match stream.get_tail() {
+                    Some(Ok(tail)) => {
+                        new_tails.push(tail);
+                    }
+                    Some(Err(err)) => {
+                        errors.push(err);
+                    }
+                    None => (),
+                }
+                if let Some(tail) = stream.get_tail() {
+                } else if stream.size_hint().0 == 0 {
+                    empties.push(i);
+                }
+            }
+        }
+        empties.reverse();
+        for i in empties {
+            self.streams.swap_remove(i);
+        }
+        self.streams.extend(new_tails);
+
         if errors.len() == 0 {
             Ok(())
         } else {
@@ -275,7 +324,7 @@ impl MultiStream for Ensamble {
         }
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.0
+        self.streams
             .iter()
             .fold(None as Option<(usize, Option<usize>)>, |acc, stream| {
                 let (min, max) = stream.size_hint();
