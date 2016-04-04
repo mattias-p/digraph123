@@ -4,11 +4,17 @@ extern crate rand;
 extern crate regex;
 extern crate vorbis;
 
+#[macro_use]
+extern crate lazy_static;
+
 use clap::{Arg, App};
 use rand::Rng;
 use regex::Regex;
+use std::collections::HashMap;
 use std::error::Error;
+use std::fmt;
 use std::fs::File;
+use std::io;
 use std::io::{Write, stderr};
 use std::num::ParseIntError;
 use std::path::{Path, PathBuf};
@@ -17,10 +23,28 @@ use std::str::FromStr;
 use std::thread;
 use std::time;
 
+#[derive(Debug)]
 enum MyError {
+    Io(io::Error),
     ParseInt(ParseIntError),
     Vorbis(vorbis::VorbisError),
-    Composite(Vec<MyError>),
+}
+
+impl Error for MyError {
+    fn description(&self) -> &str {
+        match self {
+            &MyError::ParseInt(_) => "A string could not be parsed as an integer",
+            &MyError::Vorbis(_) => "An error occured in the Vorbis decoder",
+            &MyError::Io(_) => "An I/O error ocurred",
+        }
+    }
+    fn cause(&self) -> Option<&Error> {
+        match self {
+            &MyError::ParseInt(ref err) => Some(err as &std::error::Error),
+            &MyError::Vorbis(ref err) => Some(err as &std::error::Error),
+            &MyError::Io(ref err) => Some(err as &std::error::Error),
+        }
+    }
 }
 
 impl From<ParseIntError> for MyError {
@@ -32,6 +56,18 @@ impl From<ParseIntError> for MyError {
 impl From<vorbis::VorbisError> for MyError {
     fn from(err: vorbis::VorbisError) -> MyError {
         MyError::Vorbis(err)
+    }
+}
+
+impl From<io::Error> for MyError {
+    fn from(err: io::Error) -> MyError {
+        MyError::Io(err)
+    }
+}
+
+impl fmt::Display for MyError {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(fmt, "{}", Error::description(self))
     }
 }
 
@@ -183,6 +219,16 @@ impl Digraph {
             rng: rng,
         }
     }
+    fn print(&self) {
+        for (tail, heads) in self.0.iter().enumerate() {
+            for item in heads {
+                let &(ref head, ref paths) = item;
+                for path in paths {
+                    println!("{} -> {}: {}", tail + 1, head + 1, path.display());
+                }
+            }
+        }
+    }
 }
 
 struct RandomWalk<'a> {
@@ -270,7 +316,7 @@ struct Mixer {
 }
 
 impl Mixer {
-    fn mix_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
+    fn mix_next_slice(&mut self, buf: &mut [f32]) -> Vec<MyError> {
         let size = buf.len();
         let coefficient = self.coefficient;
         for out in buf.iter_mut() {
@@ -283,7 +329,7 @@ impl Mixer {
                                  }
                              })
     }
-    fn each_next_slice(&mut self, size: usize, f: &mut FnMut(&[f32])) -> Result<(), MyError> {
+    fn each_next_slice(&mut self, size: usize, f: &mut FnMut(&[f32])) -> Vec<MyError> {
         let mut errors = vec![];
         for stream in self.streams.iter_mut() {
             match stream.next_slice(size) {
@@ -305,10 +351,6 @@ impl Mixer {
                     }
                     None => (),
                 }
-                if let Some(tail) = stream.get_tail() {
-                } else if stream.size_hint().0 == 0 {
-                    empties.push(i);
-                }
             }
         }
         empties.reverse();
@@ -318,9 +360,9 @@ impl Mixer {
         self.streams.extend(new_tails);
 
         if errors.len() == 0 {
-            Ok(())
+            vec![]
         } else {
-            Err(MyError::Composite(errors))
+            errors
         }
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -343,4 +385,107 @@ impl Mixer {
     }
 }
 
-fn main() {}
+macro_rules! insist {
+    ($res:expr, $fmt:tt $(, $arg:expr)*) => {
+        match $res {
+            Ok(value) => value,
+            Err(ref err) => {
+                let prog_name = &std::env::args().next().expect("std::env::args()");
+                let prog_name = Path::new(prog_name).file_name().expect("file_name").to_string_lossy();
+                writeln!(&mut stderr(), concat!("{}: error: ", $fmt, ": {}"), prog_name $(, $arg)*, err.description()).
+ok();
+                process::exit(1);
+            }
+        }
+    }   
+}
+
+fn path_to_section(path: &Path) -> Option<(String, String, Option<String>)> {
+    lazy_static! {
+        static ref SECTION_RE: Regex = Regex::new(r"^([^-]+)-([^-]+)(?:-(.+))?.ogg$").unwrap();
+    }
+    path.file_name()
+        .and_then(|os_str| os_str.to_str())
+        .and_then(|file_name| SECTION_RE.captures(file_name))
+        .map(|cap| {
+            (cap[1].to_lowercase().to_string(),
+             cap[2].to_lowercase().to_string(),
+             cap.at(3).map(|s| s.to_string()))
+        })
+}
+
+fn path_to_stream_config(path: &Path) -> Result<(u8, u32), MyError> {
+    let file = try!(File::open(path));
+    let mut decoder = try!(vorbis::Decoder::new(file));
+    let packet = try!(decoder.packets().next().expect("first packet"));
+    Ok((packet.channels as u8, packet.rate as u32))
+}
+
+struct DigraphBuilder {
+    indices: HashMap<String, usize>,
+    arrows: HashMap<(usize, usize), Vec<PathBuf>>,
+}
+
+impl DigraphBuilder {
+    fn new() -> DigraphBuilder {
+        DigraphBuilder {
+            indices: HashMap::new(),
+            arrows: HashMap::new(),
+        }
+    }
+    fn arrow(mut self, tail: String, head: String, path: PathBuf) -> Self {
+        let next_index = self.indices.len();
+        let tail = *self.indices.entry(tail).or_insert(next_index);
+        let next_index = self.indices.len();
+        let head = *self.indices.entry(head).or_insert(next_index);
+        self.arrows
+            .entry((tail, head))
+            .or_insert_with(|| vec![])
+            .push(path);
+        self
+    }
+    fn as_digraph(self) -> Digraph {
+        let mut digraph = Vec::with_capacity(self.indices.len());
+        for _ in 0..self.indices.len() {
+            digraph.push(vec![]);
+        }
+        for ((tail, head), arrows) in self.arrows {
+            digraph[tail].push((head, arrows));
+        }
+        Digraph(digraph)
+    }
+}
+
+fn main() {
+    let mut channel_stream_config = None;
+    let matches = App::new("digraph123")
+                      .version("1.0.0")
+                      .author("Mattias Päivärinta")
+                      .about("Play digraph shaped audio recordings using random walk")
+                      .arg(Arg::with_name("dir")
+                               .help("A digraph directory")
+                               .index(1)
+                               .multiple(true))
+                      .get_matches();
+    let dirs: Vec<_> = matches.values_of("dir").map(|v| v.collect()).unwrap_or(vec![]);
+    for dir in dirs {
+        let dir_files = insist!(std::fs::read_dir(dir), "reading directory '{}'", dir);
+        let mut digraph_builder = DigraphBuilder::new();
+        for entry in dir_files {
+            let entry = insist!(entry, "traversing directory '{}'", dir);
+            let path = entry.path();
+            let path_display = path.display();
+            if let Some((tail, head, _)) = path_to_section(&path) {
+                let file_stream_config = insist!(path_to_stream_config(&path),
+                                                 "getting stream config of '{}'",
+                                                 path_display);
+                let file_stream_config = Some(file_stream_config);
+                channel_stream_config = channel_stream_config.or(file_stream_config);
+                if file_stream_config == channel_stream_config {
+                    digraph_builder = digraph_builder.arrow(tail, head, path.clone());
+                }
+            }
+        }
+        digraph_builder.as_digraph().print();
+    }
+}
