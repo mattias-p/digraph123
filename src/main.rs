@@ -237,9 +237,8 @@ struct RandomWalk<'a> {
     rng: Box<Rng>,
 }
 
-impl<'a> Iterator for RandomWalk<'a> {
-    type Item = &'a Path;
-    fn next(&mut self) -> Option<&'a Path> {
+impl<'a> RandomWalk<'a> {
+    fn next_once(&mut self) -> Option<&'a Path> {
         let ref mut rng = self.rng;
         let cells = self.digraph.0.get(self.state);
         if let Some(&(new_state, ref arrows)) = cells.and_then(|cells| rng.choose(cells)) {
@@ -248,6 +247,13 @@ impl<'a> Iterator for RandomWalk<'a> {
         } else {
             None
         }
+    }
+}
+
+impl<'a> Iterator for RandomWalk<'a> {
+    type Item = &'a Path;
+    fn next(&mut self) -> Option<&'a Path> {
+        self.next_once().or_else(|| self.next_once())
     }
 }
 
@@ -428,8 +434,10 @@ struct DigraphBuilder {
 
 impl DigraphBuilder {
     fn new() -> DigraphBuilder {
+        let mut indices = HashMap::new();
+        indices.insert("start".to_string(), 0);
         DigraphBuilder {
-            indices: HashMap::new(),
+            indices: indices,
             arrows: HashMap::new(),
         }
     }
@@ -451,6 +459,11 @@ impl DigraphBuilder {
         }
         for ((tail, head), arrows) in self.arrows {
             digraph[tail].push((head, arrows));
+        }
+        if digraph[0].len() == 0 {
+            for i in 1..self.indices.len() {
+                digraph[0].push((i, vec![]));
+            }
         }
         Digraph(digraph)
     }
@@ -486,6 +499,9 @@ fn main() {
                 }
             }
         }
-        digraph_builder.as_digraph().print();
+        let digraph = digraph_builder.as_digraph();
+        for path in digraph.random_walk(0, Box::new(rand::thread_rng())).take(10) {
+            println!("{}", path.display());
+        }
     }
 }
