@@ -338,11 +338,10 @@ impl Stream for Player {
     fn get_tail(&mut self) -> Result<Option<Box<Stream>>, MyError> {
         self.track.get_tail().and_then(|tail| {
             while self.track.size_hint().0 == 0 {
-                match self.play_list.next() {
-                    None => break,
-                    Some(track) => {
-                        self.track = try!(track);
-                    }
+                if let Some(track) = self.play_list.next() {
+                    self.track = try!(track);
+                } else {
+                    break;
                 }
             }
             Ok(tail)
