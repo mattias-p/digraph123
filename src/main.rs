@@ -353,11 +353,6 @@ struct Mixer {
 
 impl Mixer {
     fn new(mut streams: Vec<Box<Stream>>) -> Mixer {
-        for stream in streams.iter_mut() {
-            if let (_, Some(0)) = stream.size_hint() {
-                stream.get_tail();
-            }
-        }
         Mixer {
             coefficient: 1.0 / streams.len() as f32,
             streams: streams,
@@ -551,7 +546,14 @@ fn main() {
         let digraph: Digraph = digraph_builder.into();
         let tracks = digraph.into_random_walk(Box::new(rand::thread_rng()))
                             .map(|p| vorbis_track(p.as_path()));
-        streams.push(Box::new(Player::new(Box::new(tracks))));
+        let mut stream = Player::new(Box::new(tracks));
+        if let (_, Some(0)) = stream.size_hint() {
+            stream.get_tail().unwrap();
+        }
+
+        streams.push(Box::new(stream));
+    }
+    for stream in streams.iter_mut() {
     }
     let mut mixer = Mixer::new(streams);
 
