@@ -98,7 +98,8 @@ impl Stream for VorbisStream {
                         recycled.reserve_exact(data.len() - recycled_len);
                     }
                     recycled.truncate(0);
-                    recycled.extend(data.iter().map(|value| *value as f32));
+                    recycled.extend(data.iter()
+                                        .map(|value| *value as f32 / i16::max_value() as f32));
                     self.next_packet = Some(recycled);
                 }
             }
@@ -288,7 +289,11 @@ fn vorbis_track(path: &Path) -> Result<Track, MyError> {
     let splice_point = try!(splice_point);
     let mut packets = decoder.into_packets();
     let first = if let Some(first) = packets.next() {
-        Some(try!(first).data.iter().map(|value| *value as f32).collect())
+        Some(try!(first)
+                 .data
+                 .iter()
+                 .map(|value| *value as f32 / i16::max_value() as f32)
+                 .collect())
     } else {
         None
     };
