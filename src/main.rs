@@ -295,7 +295,7 @@ fn vorbis_track(path: &Path) -> Result<Track, MyError> {
     } else {
         None
     };
-    let mut stream = VorbisStream {
+    let stream = VorbisStream {
         offset: 0,
         packet: vec![],
         next_packet: first,
@@ -313,14 +313,18 @@ struct Player {
 }
 
 impl Player {
-    fn new(tracks: Box<Iterator<Item = Result<Track, MyError>>>) -> Player {
-        Player {
+    fn new(tracks: Box<Iterator<Item = Result<Track, MyError>>>) -> Result<Player, MyError> {
+        let mut player = Player {
             track: Track {
                 stream: Box::new(EmptyStream::new()),
                 splice_point: None,
             },
             play_list: tracks,
+        };
+        if let (_, Some(0)) = player.size_hint() {
+            try!(player.get_tail());
         }
+        Ok(player)
     }
 }
 
@@ -352,7 +356,7 @@ struct Mixer {
 }
 
 impl Mixer {
-    fn new(mut streams: Vec<Box<Stream>>) -> Mixer {
+    fn new(streams: Vec<Box<Stream>>) -> Mixer {
         Mixer {
             coefficient: 1.0 / streams.len() as f32,
             streams: streams,
@@ -546,14 +550,9 @@ fn main() {
         let digraph: Digraph = digraph_builder.into();
         let tracks = digraph.into_random_walk(Box::new(rand::thread_rng()))
                             .map(|p| vorbis_track(p.as_path()));
-        let mut stream = Player::new(Box::new(tracks));
-        if let (_, Some(0)) = stream.size_hint() {
-            stream.get_tail().unwrap();
-        }
+        let stream = Player::new(Box::new(tracks)).unwrap();
 
         streams.push(Box::new(stream));
-    }
-    for stream in streams.iter_mut() {
     }
     let mut mixer = Mixer::new(streams);
 
@@ -578,8 +577,6 @@ fn main() {
 
     let mut channel = cpal::Voice::new(&endpoint, &format).expect("Failed to create a channel");
 
-    let mut sample_count = 0;
-
     let num_channels = channel_stream_config.0 as usize;
 
     loop {
@@ -589,7 +586,6 @@ fn main() {
         match channel.append_data(min_size) {
             cpal::UnknownTypeBuffer::F32(mut buffer) => {
                 mixer.mix_next_slice(buffer.deref_mut());
-                sample_count += min_size;
             }   
 
             cpal::UnknownTypeBuffer::U16(_) => {
