@@ -134,13 +134,13 @@ impl Stream for VorbisStream {
     }
 }
 
-static no_floats: [f32; 0] = [];
+static NO_FLOATS: [f32; 0] = [];
 
 struct EmptyStream([f32; 0]);
 
 impl EmptyStream {
     fn new() -> EmptyStream {
-        EmptyStream(no_floats)
+        EmptyStream(NO_FLOATS)
     }
 }
 
