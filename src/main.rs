@@ -75,7 +75,7 @@ impl fmt::Display for MyError {
 trait Stream {
     fn size_hint(&self) -> (usize, Option<usize>);
     fn next_slice(&mut self, usize) -> Result<&[f32], MyError>;
-    fn get_tail(&mut self) -> Option<Result<Box<Stream>, MyError>>;
+    fn get_tail(&mut self) -> Result<Option<Box<Stream>>, MyError>;
 }
 
 pub struct VorbisStream {
@@ -131,8 +131,8 @@ impl Stream for VorbisStream {
         (min, max)
     }
 
-    fn get_tail(&mut self) -> Option<Result<Box<Stream>, MyError>> {
-        Some(Ok(Box::new(EmptyStream::new())))
+    fn get_tail(&mut self) -> Result<Option<Box<Stream>>, MyError> {
+        Ok(Some(Box::new(EmptyStream::new())))
     }
 }
 
@@ -157,8 +157,8 @@ impl Stream for EmptyStream {
     fn size_hint(&self) -> (usize, Option<usize>) {
         (0, Some(0))
     }
-    fn get_tail(&mut self) -> Option<Result<Box<Stream>, MyError>> {
-        Some(Ok(Box::new(EmptyStream::new())))
+    fn get_tail(&mut self) -> Result<Option<Box<Stream>>, MyError> {
+        Ok(Some(Box::new(EmptyStream::new())))
     }
 }
 
@@ -204,14 +204,14 @@ impl Stream for Track {
             .unwrap_or((min, max))
     }
 
-    fn get_tail(&mut self) -> Option<Result<Box<Stream>, MyError>> {
+    fn get_tail(&mut self) -> Result<Option<Box<Stream>>, MyError> {
         let (_, max) = self.size_hint();
         if max.map(|max| max == 0).unwrap_or(false) {
             let tail = std::mem::replace(&mut self.stream, Box::new(EmptyStream([])));
             if tail.size_hint().0 > 0 {
-                Some(Ok(tail))
+                Ok(Some(tail))
             } else {
-                Some(Ok(Box::new(EmptyStream::new())))
+                Ok(Some(Box::new(EmptyStream::new())))
             }
         } else {
             panic!("unconsumed data");
@@ -333,7 +333,7 @@ impl Stream for Player {
     fn next_slice(&mut self, size: usize) -> Result<&[f32], MyError> {
         self.track.next_slice(size)
     }
-    fn get_tail(&mut self) -> Option<Result<Box<Stream>, MyError>> {
+    fn get_tail(&mut self) -> Result<Option<Box<Stream>>, MyError> {
         self.track.get_tail().map(|tail| {
             while self.track.size_hint().0 == 0 {
                 match self.play_list.next() {
@@ -392,16 +392,16 @@ impl Mixer {
         for (i, stream) in self.streams.iter_mut().enumerate() {
             if stream.size_hint().0 == 0 {
                 match stream.get_tail() {
-                    Some(Ok(tail)) => {
+                    Ok(Some(tail)) => {
                         if tail.size_hint().1 != Some(0) {
                             new_tails.push(tail);
                         }
                     }
-                    Some(Err(err)) => {
-                        errors.push(err);
-                    }
-                    None => {
+                    Ok(None) => {
                         empties.push(i);
+                    }
+                    Err(err) => {
+                        errors.push(err);
                     }
                 }
             }
