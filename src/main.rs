@@ -336,16 +336,16 @@ impl Stream for Player {
         self.track.next_slice(size)
     }
     fn get_tail(&mut self) -> Result<Option<Box<Stream>>, MyError> {
-        self.track.get_tail().map(|tail| {
+        self.track.get_tail().and_then(|tail| {
             while self.track.size_hint().0 == 0 {
                 match self.play_list.next() {
-                    Some(Ok(track)) => {
-                        self.track = track;
+                    None => break,
+                    Some(track) => {
+                        self.track = try!(track);
                     }
-                    _ => break,
                 }
             }
-            tail
+            Ok(tail)
         })
     }
 }
