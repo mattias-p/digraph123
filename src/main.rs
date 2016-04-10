@@ -17,6 +17,7 @@ use std::fs::File;
 use std::io;
 use std::io::{Write, stderr};
 use std::num::ParseIntError;
+use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::str::FromStr;
@@ -104,7 +105,7 @@ impl Stream for VorbisStream {
         }
         let (min, _) = self.size_hint();
         if size > min {
-            panic!("out of bounds");
+            panic!("out of bounds in VorbisStream");
         }
         let old_offset = self.offset;
         self.offset += size;
@@ -130,25 +131,33 @@ impl Stream for VorbisStream {
     }
 
     fn get_tail(&mut self) -> Option<Result<Box<Stream>, MyError>> {
-        None
+        Some(Ok(Box::new(EmptyStream::new())))
     }
 }
 
+static no_floats: [f32; 0] = [];
+
 struct EmptyStream([f32; 0]);
+
+impl EmptyStream {
+    fn new() -> EmptyStream {
+        EmptyStream(no_floats)
+    }
+}
 
 impl Stream for EmptyStream {
     fn next_slice(&mut self, size: usize) -> Result<&[f32], MyError> {
         if size == 0 {
             Ok(&self.0)
         } else {
-            panic!("out of bounds");
+            panic!("out of bounds in EmptyStream");
         }
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         (0, Some(0))
     }
     fn get_tail(&mut self) -> Option<Result<Box<Stream>, MyError>> {
-        None
+        Some(Ok(Box::new(EmptyStream::new())))
     }
 }
 
@@ -172,7 +181,7 @@ impl Stream for Track {
     fn next_slice(&mut self, size: usize) -> Result<&[f32], MyError> {
         let (min, _) = self.size_hint();
         if size > min {
-            panic!("out of bounds");
+            panic!("out of bounds in Track");
         }
         self.splice_point = self.splice_point.map(|sp| sp - size as u64);
         self.stream.next_slice(size)
@@ -201,7 +210,7 @@ impl Stream for Track {
             if tail.size_hint().0 > 0 {
                 Some(Ok(tail))
             } else {
-                None
+                Some(Ok(Box::new(EmptyStream::new())))
             }
         } else {
             panic!("unconsumed data");
@@ -212,10 +221,10 @@ impl Stream for Track {
 struct Digraph(Vec<Vec<(usize, Vec<PathBuf>)>>);
 
 impl Digraph {
-    fn random_walk<'a>(&'a self, state: usize, rng: Box<Rng>) -> RandomWalk<'a> {
-        RandomWalk {
-            state: state,
-            digraph: &self,
+    fn into_random_walk(self, rng: Box<Rng>) -> IntoRandomWalk {
+        IntoRandomWalk {
+            state: 0,
+            digraph: self,
             rng: rng,
         }
     }
@@ -231,14 +240,14 @@ impl Digraph {
     }
 }
 
-struct RandomWalk<'a> {
+struct IntoRandomWalk {
     state: usize,
-    digraph: &'a Digraph,
+    digraph: Digraph,
     rng: Box<Rng>,
 }
 
-impl<'a> RandomWalk<'a> {
-    fn next_once(&mut self) -> Option<&'a Path> {
+impl IntoRandomWalk {
+    fn next_once(&mut self) -> Option<&Path> {
         let ref mut rng = self.rng;
         let cells = self.digraph.0.get(self.state);
         if let Some(&(new_state, ref arrows)) = cells.and_then(|cells| rng.choose(cells)) {
@@ -250,10 +259,11 @@ impl<'a> RandomWalk<'a> {
     }
 }
 
-impl<'a> Iterator for RandomWalk<'a> {
-    type Item = &'a Path;
-    fn next(&mut self) -> Option<&'a Path> {
-        self.next_once().or_else(|| self.next_once())
+impl<'a> Iterator for IntoRandomWalk {
+    type Item = PathBuf;
+    fn next(&mut self) -> Option<PathBuf> {
+        let path = self.next_once().map(|p| p.to_path_buf());
+        path.or_else(|| self.next_once().map(|p| p.to_path_buf()))
     }
 }
 
@@ -276,11 +286,17 @@ fn vorbis_track(path: &Path) -> Result<Track, MyError> {
                                        res
                                    });
     let splice_point = try!(splice_point);
-    let stream = VorbisStream {
+    let mut packets = decoder.into_packets();
+    let first = if let Some(first) = packets.next() {
+        Some(try!(first).data.iter().map(|value| *value as f32).collect())
+    } else {
+        None
+    };
+    let mut stream = VorbisStream {
         offset: 0,
         packet: vec![],
-        next_packet: Some(vec![]),
-        packets: decoder.into_packets(),
+        next_packet: first,
+        packets: packets,
     };
     Ok(Track {
         stream: Box::new(stream),
@@ -293,6 +309,18 @@ struct Player {
     play_list: Box<Iterator<Item = Result<Track, MyError>>>,
 }
 
+impl Player {
+    fn new(tracks: Box<Iterator<Item = Result<Track, MyError>>>) -> Player {
+        Player {
+            track: Track {
+                stream: Box::new(EmptyStream::new()),
+                splice_point: None,
+            },
+            play_list: tracks,
+        }
+    }
+}
+
 impl Stream for Player {
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.track.size_hint()
@@ -302,13 +330,12 @@ impl Stream for Player {
     }
     fn get_tail(&mut self) -> Option<Result<Box<Stream>, MyError>> {
         self.track.get_tail().map(|tail| {
-            if self.track.size_hint().0 == 0 {
+            while self.track.size_hint().0 == 0 {
                 match self.play_list.next() {
                     Some(Ok(track)) => {
                         self.track = track;
                     }
-                    Some(Err(track)) => {}
-                    None => (),
+                    _ => break,
                 }
             }
             tail
@@ -322,6 +349,17 @@ struct Mixer {
 }
 
 impl Mixer {
+    fn new(mut streams: Vec<Box<Stream>>) -> Mixer {
+        for stream in streams.iter_mut() {
+            if let (_, Some(0)) = stream.size_hint() {
+                stream.get_tail();
+            }
+        }
+        Mixer {
+            coefficient: 1.0 / streams.len() as f32,
+            streams: streams,
+        }
+    }
     fn mix_next_slice(&mut self, buf: &mut [f32]) -> Vec<MyError> {
         let size = buf.len();
         let coefficient = self.coefficient;
@@ -350,12 +388,16 @@ impl Mixer {
             if stream.size_hint().0 == 0 {
                 match stream.get_tail() {
                     Some(Ok(tail)) => {
-                        new_tails.push(tail);
+                        if tail.size_hint().1 != Some(0) {
+                            new_tails.push(tail);
+                        }
                     }
                     Some(Err(err)) => {
                         errors.push(err);
                     }
-                    None => (),
+                    None => {
+                        empties.push(i);
+                    }
                 }
             }
         }
@@ -452,7 +494,10 @@ impl DigraphBuilder {
             .push(path);
         self
     }
-    fn as_digraph(self) -> Digraph {
+}
+
+impl Into<Digraph> for DigraphBuilder {
+    fn into(self) -> Digraph {
         let mut digraph = Vec::with_capacity(self.indices.len());
         for _ in 0..self.indices.len() {
             digraph.push(vec![]);
@@ -481,6 +526,7 @@ fn main() {
                                .multiple(true))
                       .get_matches();
     let dirs: Vec<_> = matches.values_of("dir").map(|v| v.collect()).unwrap_or(vec![]);
+    let mut streams: Vec<Box<Stream>> = vec![];
     for dir in dirs {
         let dir_files = insist!(std::fs::read_dir(dir), "reading directory '{}'", dir);
         let mut digraph_builder = DigraphBuilder::new();
@@ -499,9 +545,57 @@ fn main() {
                 }
             }
         }
-        let digraph = digraph_builder.as_digraph();
-        for path in digraph.random_walk(0, Box::new(rand::thread_rng())).take(10) {
-            println!("{}", path.display());
-        }
+        let digraph: Digraph = digraph_builder.into();
+        let tracks = digraph.into_random_walk(Box::new(rand::thread_rng()))
+                            .map(|p| vorbis_track(p.as_path()));
+        streams.push(Box::new(Player::new(Box::new(tracks))));
+    }
+    let mut mixer = Mixer::new(streams);
+
+    let channel_stream_config = channel_stream_config.unwrap();
+
+    let endpoint = cpal::get_default_endpoint().expect("default endpoint");
+    let format = {
+        let formats = endpoint.get_supported_formats_list();
+        let formats = insist!(formats,
+                              "getting list of formats supported by default endpoint");
+
+        formats.filter(|f| f.samples_rate.0 as u32 == channel_stream_config.1)
+               .filter(|f| f.channels.len() == channel_stream_config.0 as usize)
+               .filter(|f| f.data_type == cpal::SampleFormat::F32)
+               .next()
+    };
+    let format = if let Some(format) = format {
+        format
+    } else {
+        panic!("stream format not supported");
+    };
+
+    let mut channel = cpal::Voice::new(&endpoint, &format).expect("Failed to create a channel");
+
+    let mut sample_count = 0;
+
+    let num_channels = channel_stream_config.0 as usize;
+
+    loop {
+        // since we just called peek(), min_size will be non-zero, and append_data() will be happy
+        let (min_size, _) = mixer.size_hint();
+        let min_size = min_size + (num_channels - 1 - (min_size + 1) % num_channels);
+        match channel.append_data(min_size) {
+            cpal::UnknownTypeBuffer::F32(mut buffer) => {
+                mixer.mix_next_slice(buffer.deref_mut());
+                sample_count += min_size;
+            }   
+
+            cpal::UnknownTypeBuffer::U16(_) => {
+                panic!("unsupported buffer type");
+            }   
+
+            cpal::UnknownTypeBuffer::I16(_) => {
+                panic!("unsupported buffer type");
+            }   
+        };
+
+        channel.play();
     }
 }
