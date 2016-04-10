@@ -21,8 +21,6 @@ use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::str::FromStr;
-use std::thread;
-use std::time;
 
 #[derive(Debug)]
 enum MyError {
