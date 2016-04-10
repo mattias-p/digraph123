@@ -11,4 +11,4 @@ libc = "0.2"
 ogg-sys = "0.0"
 rand = "0.3"
 regex = "0.1"
-vorbis = { path = "../vorbis-rs" }
+vorbis = { git = "https://github.com/mattias-p/vorbis-rs.git", branch="comments" }
