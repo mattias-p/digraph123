@@ -1,6 +1,6 @@
 [package]
-name = "digraph345"
-version = "0.1.0"
+name = "digraph123"
+version = "1.0.0"
 authors = ["Mattias Päivärinta <mattias.paivarinta@doxwork.com>"]
 
 [dependencies]
