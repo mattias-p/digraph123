@@ -71,7 +71,8 @@ impl fmt::Display for MyError {
 }
 
 trait Stream {
-    fn size_hint(&self) -> (usize, Option<usize>);
+    fn min_bound(&self) -> usize;
+    fn max_bound(&self) -> Option<usize>;
     fn next_slice(&mut self, usize) -> Result<&[f32], MyError>;
     fn get_tail(&mut self) -> Result<Option<Box<Stream>>, MyError>;
 }
@@ -102,7 +103,7 @@ impl Stream for VorbisStream {
                 }
             }
         }
-        let (min, _) = self.size_hint();
+        let min = self.min_bound();
         if size > min {
             panic!("out of bounds in VorbisStream");
         }
@@ -111,8 +112,8 @@ impl Stream for VorbisStream {
         Ok(&self.packet[old_offset..self.offset])
     }
 
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let min = if self.offset == self.packet.len() {
+    fn min_bound(&self) -> usize {
+        if self.offset == self.packet.len() {
             if let Some(ref packet) = self.next_packet {
                 packet.len()
             } else {
@@ -120,13 +121,15 @@ impl Stream for VorbisStream {
             }
         } else {
             self.packet.len() - self.offset
-        };
-        let max = if self.next_packet.is_none() {
-            Some(min)
+        }
+    }
+
+    fn max_bound(&self) -> Option<usize> {
+        if self.next_packet.is_none() {
+            Some(self.min_bound())
         } else {
             None
-        };
-        (min, max)
+        }
     }
 
     fn get_tail(&mut self) -> Result<Option<Box<Stream>>, MyError> {
@@ -152,8 +155,11 @@ impl Stream for EmptyStream {
             panic!("out of bounds in EmptyStream");
         }
     }
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, Some(0))
+    fn min_bound(&self) -> usize {
+        0
+    }
+    fn max_bound(&self) -> Option<usize> {
+        Some(0)
     }
     fn get_tail(&mut self) -> Result<Option<Box<Stream>>, MyError> {
         Ok(Some(Box::new(EmptyStream::new())))
@@ -167,7 +173,7 @@ struct Track {
 
 impl Track {
     fn into_stream(self) -> Box<Stream> {
-        let (_, max) = self.size_hint();
+        let max = self.max_bound();
         if max.map(|max| max == 0).unwrap_or(false) {
             self.stream
         } else {
@@ -178,7 +184,7 @@ impl Track {
 
 impl Stream for Track {
     fn next_slice(&mut self, size: usize) -> Result<&[f32], MyError> {
-        let (min, _) = self.size_hint();
+        let min = self.min_bound();
         if size > min {
             panic!("out of bounds in Track");
         }
@@ -186,27 +192,34 @@ impl Stream for Track {
         self.stream.next_slice(size)
     }
 
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let (min, max) = self.stream.size_hint();
+    fn min_bound(&self) -> usize {
+        let min = self.stream.min_bound();
+        self.splice_point
+            .map(|sp| std::cmp::min(sp, min as u64) as usize)
+            .unwrap_or(min)
+    }
+
+    fn max_bound(&self) -> Option<usize> {
+        let max = self.stream.max_bound();
         self.splice_point
             .map(|sp| {
-                (std::cmp::min(sp, min as u64) as usize,
-                 max.map(|max| std::cmp::min(sp, max as u64) as usize).or_else(|| {
+                max.map(|max| std::cmp::min(sp, max as u64) as usize).or_else(|| {
                     if sp <= usize::max_value() as u64 {
                         Some(sp as usize)
                     } else {
                         None
                     }
-                }))
+                })
             })
-            .unwrap_or((min, max))
+            .unwrap_or(max)
     }
 
+
     fn get_tail(&mut self) -> Result<Option<Box<Stream>>, MyError> {
-        let (_, max) = self.size_hint();
+        let max = self.max_bound();
         if max.map(|max| max == 0).unwrap_or(false) {
             let tail = std::mem::replace(&mut self.stream, Box::new(EmptyStream([])));
-            if tail.size_hint().0 > 0 {
+            if tail.min_bound() > 0 {
                 Ok(Some(tail))
             } else {
                 Ok(Some(Box::new(EmptyStream::new())))
@@ -321,7 +334,7 @@ impl Player {
             },
             play_list: tracks,
         };
-        if let (_, Some(0)) = player.size_hint() {
+        if let Some(0) = player.max_bound() {
             try!(player.get_tail());
         }
         Ok(player)
@@ -329,15 +342,18 @@ impl Player {
 }
 
 impl Stream for Player {
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.track.size_hint()
+    fn min_bound(&self) -> usize {
+        self.track.min_bound()
+    }
+    fn max_bound(&self) -> Option<usize> {
+        self.track.max_bound()
     }
     fn next_slice(&mut self, size: usize) -> Result<&[f32], MyError> {
         self.track.next_slice(size)
     }
     fn get_tail(&mut self) -> Result<Option<Box<Stream>>, MyError> {
         self.track.get_tail().and_then(|tail| {
-            while self.track.size_hint().0 == 0 {
+            while self.track.min_bound() == 0 {
                 if let Some(track) = self.play_list.next() {
                     self.track = try!(track);
                 } else {
@@ -386,10 +402,10 @@ impl Mixer {
         let mut new_tails = vec![];
         let mut empties = vec![];
         for (i, stream) in self.streams.iter_mut().enumerate() {
-            if stream.size_hint().0 == 0 {
+            if stream.min_bound() == 0 {
                 match stream.get_tail() {
                     Ok(Some(tail)) => {
-                        if tail.size_hint().1 != Some(0) {
+                        if tail.max_bound() != Some(0) {
                             new_tails.push(tail);
                         }
                     }
@@ -414,23 +430,32 @@ impl Mixer {
             errors
         }
     }
-    fn size_hint(&self) -> (usize, Option<usize>) {
+    fn min_bound(&self) -> usize {
         self.streams
             .iter()
-            .fold(None as Option<(usize, Option<usize>)>, |acc, stream| {
-                let (min, max) = stream.size_hint();
-                acc.map(|acc| {
-                       let (acc_min, acc_max) = acc;
-                       (std::cmp::min(acc_min, min),
-                        max.map(|max| {
-                               acc_max.map(|acc_max| std::cmp::min(acc_max, max))
-                                      .unwrap_or(max)
-                           })
-                           .or(acc_max))
-                   })
-                   .or(Some((min, max)))
+            .fold(None as Option<usize>, |acc, stream| {
+                let min = stream.min_bound();
+                acc.map(|acc| std::cmp::min(acc, min))
+                   .or(Some(min))
             })
-            .unwrap_or((0, Some(0)))
+            .unwrap_or(0)
+    }
+    fn max_bound(&self) -> Option<usize> {
+        self.streams
+            .iter()
+            .fold(None as Option<Option<usize>>, |acc, stream| {
+                let max = stream.max_bound();
+                if let Some(acc_max) = acc {
+                    if let (Some(acc_max), Some(max)) = (acc_max, max) {
+                        Some(Some(std::cmp::min(acc_max, max)))
+                    } else {
+                        Some(acc_max.or(max))
+                    }
+                } else {
+                    Some(max)
+                }
+            })
+            .unwrap_or(Some(0))
     }
 }
 
@@ -580,7 +605,7 @@ fn main() {
 
     loop {
         // since we just called peek(), min_size will be non-zero, and append_data() will be happy
-        let (min_size, _) = mixer.size_hint();
+        let min_size = mixer.min_bound();
         let min_size = min_size + (num_channels - 1 - (min_size + 1) % num_channels);
         match channel.append_data(min_size) {
             cpal::UnknownTypeBuffer::F32(mut buffer) => {
