@@ -74,7 +74,7 @@ trait Stream {
     fn min_bound(&self) -> usize;
     fn max_bound(&self) -> Option<usize>;
     fn next_slice(&mut self, usize) -> Result<&[f32], MyError>;
-    fn get_tail(&mut self) -> Result<Option<Box<Stream>>, MyError>;
+    fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError>;
 }
 
 pub struct VorbisStream {
@@ -132,8 +132,8 @@ impl Stream for VorbisStream {
         }
     }
 
-    fn get_tail(&mut self) -> Result<Option<Box<Stream>>, MyError> {
-        Ok(Some(Box::new(EmptyStream::new())))
+    fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
+        Ok(vec![])
     }
 }
 
@@ -161,8 +161,8 @@ impl Stream for EmptyStream {
     fn max_bound(&self) -> Option<usize> {
         Some(0)
     }
-    fn get_tail(&mut self) -> Result<Option<Box<Stream>>, MyError> {
-        Ok(Some(Box::new(EmptyStream::new())))
+    fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
+        Ok(vec![])
     }
 }
 
@@ -172,13 +172,14 @@ struct Track {
 }
 
 impl Track {
-    fn into_stream(self) -> Box<Stream> {
-        let max = self.max_bound();
-        if max.map(|max| max == 0).unwrap_or(false) {
-            self.stream
-        } else {
-            panic!("unconsumed data");
-        }
+    fn splice_point_as_usize(&self) -> Option<usize> {
+        self.splice_point.and_then(|sp| {
+            if sp <= usize::max_value() as u64 {
+                Some(sp as usize)
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -194,35 +195,31 @@ impl Stream for Track {
 
     fn min_bound(&self) -> usize {
         let min = self.stream.min_bound();
-        self.splice_point
-            .map(|sp| std::cmp::min(sp, min as u64) as usize)
-            .unwrap_or(min)
+        let sp = self.splice_point_as_usize();
+        if let Some(sp) = sp {
+            std::cmp::min(sp, min)
+        } else {
+            min
+        }
     }
 
     fn max_bound(&self) -> Option<usize> {
         let max = self.stream.max_bound();
-        self.splice_point
-            .map(|sp| {
-                max.map(|max| std::cmp::min(sp, max as u64) as usize).or_else(|| {
-                    if sp <= usize::max_value() as u64 {
-                        Some(sp as usize)
-                    } else {
-                        None
-                    }
-                })
-            })
-            .unwrap_or(max)
+        let sp = self.splice_point_as_usize();
+        if let (Some(sp), Some(max)) = (sp, max) {
+            Some(std::cmp::min(sp, max))
+        } else {
+            sp.or(max)
+        }
     }
 
-
-    fn get_tail(&mut self) -> Result<Option<Box<Stream>>, MyError> {
-        let max = self.max_bound();
-        if max.map(|max| max == 0).unwrap_or(false) {
-            let tail = std::mem::replace(&mut self.stream, Box::new(EmptyStream([])));
-            if tail.min_bound() > 0 {
-                Ok(Some(tail))
+    fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
+        if self.max_bound() == Some(0) {
+            let tail = std::mem::replace(&mut self.stream, Box::new(EmptyStream::new()));
+            if tail.max_bound() != Some(0) {
+                Ok(vec![tail])
             } else {
-                Ok(Some(Box::new(EmptyStream::new())))
+                Ok(vec![])
             }
         } else {
             panic!("unconsumed data");
@@ -335,7 +332,7 @@ impl Player {
             play_list: tracks,
         };
         if let Some(0) = player.max_bound() {
-            try!(player.get_tail());
+            try!(player.get_tails());
         }
         Ok(player)
     }
@@ -351,17 +348,17 @@ impl Stream for Player {
     fn next_slice(&mut self, size: usize) -> Result<&[f32], MyError> {
         self.track.next_slice(size)
     }
-    fn get_tail(&mut self) -> Result<Option<Box<Stream>>, MyError> {
-        self.track.get_tail().and_then(|tail| {
-            while self.track.min_bound() == 0 {
-                if let Some(track) = self.play_list.next() {
-                    self.track = try!(track);
-                } else {
-                    break;
-                }
+    fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
+        let mut tails = vec![];
+        while self.track.max_bound() == Some(0) {
+            tails.extend(try!(self.track.get_tails()));
+            if let Some(new_track) = self.play_list.next() {
+                self.track = try!(new_track);
+            } else {
+                break;
             }
-            Ok(tail)
-        })
+        }
+        Ok(tails)
     }
 }
 
@@ -403,14 +400,12 @@ impl Mixer {
         let mut empties = vec![];
         for (i, stream) in self.streams.iter_mut().enumerate() {
             if stream.min_bound() == 0 {
-                match stream.get_tail() {
-                    Ok(Some(tail)) => {
-                        if tail.max_bound() != Some(0) {
-                            new_tails.push(tail);
+                match stream.get_tails() {
+                    Ok(tails) => {
+                        new_tails.extend(tails);
+                        if stream.max_bound() == Some(0) {
+                            empties.push(i);
                         }
-                    }
-                    Ok(None) => {
-                        empties.push(i);
                     }
                     Err(err) => {
                         errors.push(err);
