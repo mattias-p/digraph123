@@ -141,15 +141,7 @@ impl Stream for VorbisStream {
     }
 }
 
-static NO_FLOATS: [f32; 0] = [];
-
-struct EmptyStream([f32; 0]);
-
-impl EmptyStream {
-    fn new() -> EmptyStream {
-        EmptyStream(NO_FLOATS)
-    }
-}
+struct EmptyStream;
 
 impl Stream for EmptyStream {
     fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
@@ -211,7 +203,7 @@ impl Stream for Track {
 
     fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         if self.is_eos() {
-            let tail = std::mem::replace(&mut self.stream, Box::new(EmptyStream::new()));
+            let tail = std::mem::replace(&mut self.stream, Box::new(EmptyStream));
             if !tail.is_eos() {
                 Ok(vec![tail])
             } else {
@@ -328,7 +320,7 @@ impl Player {
     fn new(tracks: Box<Iterator<Item = Result<Track, MyError>>>) -> Result<Player, MyError> {
         let mut player = Player {
             track: Track {
-                stream: Box::new(EmptyStream::new()),
+                stream: Box::new(EmptyStream),
                 splice_point: None,
             },
             play_list: tracks,
