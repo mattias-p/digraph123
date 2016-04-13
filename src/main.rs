@@ -626,7 +626,6 @@ fn main() {
     let num_channels = channel_stream_config.0 as usize;
 
     loop {
-        // since we just called peek(), min_size will be non-zero, and append_data() will be happy
         let min_size = mixer.min_bound();
         let min_size = min_size + (num_channels - 1 - (min_size + 1) % num_channels);
         match channel.append_data(min_size) {
