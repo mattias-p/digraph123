@@ -33,14 +33,14 @@ impl Error for MyError {
     fn description(&self) -> &str {
         match self {
             &MyError::ParseInt(_) => "A string could not be parsed as an integer",
-            &MyError::Vorbis(_) => "An error occured in the Vorbis decoder",
+            &MyError::Vorbis(ref err) => err.description(),
             &MyError::Io(_) => "An I/O error ocurred",
         }
     }
     fn cause(&self) -> Option<&Error> {
         match self {
             &MyError::ParseInt(ref err) => Some(err as &std::error::Error),
-            &MyError::Vorbis(ref err) => Some(err as &std::error::Error),
+            &MyError::Vorbis(ref err) => err.cause(),
             &MyError::Io(ref err) => Some(err as &std::error::Error),
         }
     }
