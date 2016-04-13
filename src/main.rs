@@ -364,7 +364,6 @@ impl Stream for Player {
 }
 
 struct Mixer {
-    coefficient: f32,
     streams: Vec<Box<Stream>>,
     errors: VecDeque<MyError>,
 }
@@ -372,7 +371,6 @@ struct Mixer {
 impl Mixer {
     fn new(streams: Vec<Box<Stream>>) -> Mixer {
         Mixer {
-            coefficient: 1.0 / streams.len() as f32,
             errors: VecDeque::with_capacity(streams.len()),
             streams: streams,
         }
@@ -390,10 +388,6 @@ impl Stream for Mixer {
 
         let mut new_tails = vec![];
         let mut empties = vec![];
-
-        for out in buf.iter_mut() {
-            *out = 0.0;
-        }
 
         for (i, stream) in self.streams.iter_mut().enumerate() {
             if let Err(err) = stream.add_next_slice(buf) {
@@ -413,10 +407,6 @@ impl Stream for Mixer {
                     }
                 }
             }
-        }
-
-        for out in buf.iter_mut() {
-            *out *= self.coefficient;
         }
 
         empties.reverse();
@@ -580,6 +570,8 @@ fn main() {
 
         streams.push(Box::new(stream));
     }
+
+    let coefficient = 1.0 / streams.len() as f32;
     let mut mixer = Mixer::new(streams);
 
     let channel_stream_config = channel_stream_config.unwrap();
@@ -610,9 +602,17 @@ fn main() {
         let min_size = min_size + (num_channels - 1 - (min_size + 1) % num_channels);
         match channel.append_data(min_size) {
             cpal::UnknownTypeBuffer::F32(mut buffer) => {
+                for out in buffer.deref_mut().iter_mut() {
+                    *out = 0.0;
+                }
+
                 mixer.add_next_slice(buffer.deref_mut())
                      .map_err(|ref err| print_error!(err, "mixing streams"))
                      .ok();
+
+                for out in buffer.deref_mut().iter_mut() {
+                    *out *= coefficient;
+                }
             }
 
             cpal::UnknownTypeBuffer::U16(_) => {
