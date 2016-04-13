@@ -72,10 +72,10 @@ impl fmt::Display for MyError {
 }
 
 trait Stream {
-    fn min_bound(&self) -> usize;
+    fn max_read(&self) -> usize;
     fn is_eos(&self) -> bool;
     fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError>;
-    fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError>;
+    fn read_add(&mut self, buf: &mut [f32]) -> Result<(), MyError>;
 }
 
 pub struct VorbisStream {
@@ -86,7 +86,7 @@ pub struct VorbisStream {
 }
 
 impl Stream for VorbisStream {
-    fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
+    fn read_add(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
         if self.offset == self.packet.len() {
             if let Some(next_packet) = std::mem::replace(&mut self.next_packet, None) {
                 let mut recycled = std::mem::replace(&mut self.packet, next_packet);
@@ -104,7 +104,7 @@ impl Stream for VorbisStream {
                 }
             }
         }
-        let min = self.min_bound();
+        let min = self.max_read();
         if buf.len() > min {
             panic!("out of bounds in VorbisStream");
         }
@@ -120,7 +120,7 @@ impl Stream for VorbisStream {
         Ok(())
     }
 
-    fn min_bound(&self) -> usize {
+    fn max_read(&self) -> usize {
         if self.offset == self.packet.len() {
             if let Some(ref packet) = self.next_packet {
                 packet.len()
@@ -133,7 +133,7 @@ impl Stream for VorbisStream {
     }
 
     fn is_eos(&self) -> bool {
-        self.next_packet.is_none() && self.min_bound() == 0
+        self.next_packet.is_none() && self.max_read() == 0
     }
 
     fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
@@ -144,7 +144,7 @@ impl Stream for VorbisStream {
 struct EmptyStream;
 
 impl Stream for EmptyStream {
-    fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
+    fn read_add(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
         if buf.len() == 0 {
             Ok(())
         } else {
@@ -152,7 +152,7 @@ impl Stream for EmptyStream {
         }
     }
 
-    fn min_bound(&self) -> usize {
+    fn max_read(&self) -> usize {
         0
     }
 
@@ -183,12 +183,12 @@ impl Track {
 }
 
 impl Stream for Track {
-    fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
-        self.stream.add_next_slice(buf)
+    fn read_add(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
+        self.stream.read_add(buf)
     }
 
-    fn min_bound(&self) -> usize {
-        let min = self.stream.min_bound();
+    fn max_read(&self) -> usize {
+        let min = self.stream.max_read();
         let sp = self.splice_point_as_usize();
         if let Some(sp) = sp {
             std::cmp::min(sp, min)
@@ -333,16 +333,16 @@ impl Player {
 }
 
 impl Stream for Player {
-    fn min_bound(&self) -> usize {
-        self.track.min_bound()
+    fn max_read(&self) -> usize {
+        self.track.max_read()
     }
 
     fn is_eos(&self) -> bool {
         self.track.is_eos()
     }
 
-    fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
-        self.track.add_next_slice(buf)
+    fn read_add(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
+        self.track.read_add(buf)
     }
 
     fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
@@ -378,7 +378,7 @@ impl Stream for Mixer {
         Ok(vec![])
     }
 
-    fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
+    fn read_add(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
         if let Some(err) = self.errors.pop_front() {
             return Err(err);
         }
@@ -387,10 +387,10 @@ impl Stream for Mixer {
         let mut empties = vec![];
 
         for (i, stream) in self.streams.iter_mut().enumerate() {
-            if let Err(err) = stream.add_next_slice(buf) {
+            if let Err(err) = stream.read_add(buf) {
                 self.errors.push_back(err);
                 empties.push(i);
-            } else if stream.min_bound() == 0 {
+            } else if stream.max_read() == 0 {
                 match stream.get_tails() {
                     Ok(tails) => {
                         new_tails.extend(tails);
@@ -421,11 +421,11 @@ impl Stream for Mixer {
         }
     }
 
-    fn min_bound(&self) -> usize {
+    fn max_read(&self) -> usize {
         self.streams
             .iter()
             .fold(None as Option<usize>, |acc, stream| {
-                let min = stream.min_bound();
+                let min = stream.max_read();
                 acc.map(|acc| std::cmp::min(acc, min))
                    .or(Some(min))
             })
@@ -596,7 +596,7 @@ fn main() {
     let num_channels = channel_stream_config.0 as usize;
 
     loop {
-        let min_size = mixer.min_bound();
+        let min_size = mixer.max_read();
         let min_size = min_size + (num_channels - 1 - (min_size + 1) % num_channels);
         match channel.append_data(min_size) {
             cpal::UnknownTypeBuffer::F32(mut buffer) => {
@@ -604,7 +604,7 @@ fn main() {
                     *out = 0.0;
                 }
 
-                mixer.add_next_slice(buffer.deref_mut())
+                mixer.read_add(buffer.deref_mut())
                      .map_err(|ref err| print_error!(err, "mixing streams"))
                      .ok();
 
