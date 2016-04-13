@@ -270,6 +270,22 @@ impl<'a> Iterator for IntoRandomWalk {
     }
 }
 
+fn get_prog_name() -> &'static str {
+    fn aux() -> String {
+        let prog_name = std::env::args().next().expect("std::env::args()");
+        Path::new(&prog_name)
+            .file_name()
+            .expect("file_name")
+            .to_string_lossy()
+            .into_owned()
+    }
+    lazy_static! {
+        static ref PROG_NAME: String = aux();
+    }
+    PROG_NAME.as_str()
+}
+
+
 fn vorbis_track(path: &Path) -> Result<Track, MyError> {
     let display = path.display();
     let file = match File::open(&path) {
@@ -461,9 +477,7 @@ macro_rules! insist {
         match $res {
             Ok(value) => value,
             Err(ref err) => {
-                let prog_name = &std::env::args().next().expect("std::env::args()");
-                let prog_name = Path::new(prog_name).file_name().expect("file_name").to_string_lossy();
-                writeln!(&mut stderr(), concat!("{}: error: ", $fmt, ": {}"), prog_name $(, $arg)*, err.description()).
+                writeln!(&mut stderr(), concat!("{}: error: ", $fmt, ": {}"), get_prog_name() $(, $arg)*, err.description()).
 ok();
                 process::exit(1);
             }
@@ -538,6 +552,8 @@ impl Into<Digraph> for DigraphBuilder {
 }
 
 fn main() {
+    get_prog_name();
+
     let mut channel_stream_config = None;
     let matches = App::new("digraph123")
                       .version("1.0.0")
@@ -607,8 +623,11 @@ fn main() {
         match channel.append_data(min_size) {
             cpal::UnknownTypeBuffer::F32(mut buffer) => {
                 if let Err(err) = mixer.add_next_slice(buffer.deref_mut()) {
-                    let prog_name = &std::env::args().next().expect("std::env::args()");
-                    writeln!(&mut stderr(), "{}: error: {}", prog_name, err.description()).unwrap();
+                    writeln!(&mut stderr(),
+                             "{}: error: {}",
+                             get_prog_name(),
+                             err.description())
+                        .unwrap();
                 }
             }
 
