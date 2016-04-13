@@ -472,13 +472,22 @@ impl Stream for Mixer {
     }
 }
 
+macro_rules! print_error {
+    ($err:expr, $fmt:tt $(, $arg:expr)*) => {{
+        writeln!(&mut stderr(), concat!("{}: error: ", $fmt, ": {}"), get_prog_name() $(, $arg)*, $err.description()).ok();
+        let err = $err;
+        while let Some(err) = err.cause() {
+            writeln!(&mut stderr(), "\tcaused by: {}", err.description()).unwrap();
+        }
+    }}
+}
+
 macro_rules! insist {
     ($res:expr, $fmt:tt $(, $arg:expr)*) => {
         match $res {
             Ok(value) => value,
             Err(ref err) => {
-                writeln!(&mut stderr(), concat!("{}: error: ", $fmt, ": {}"), get_prog_name() $(, $arg)*, err.description()).
-ok();
+                print_error!(err, $fmt $(, $arg)*);
                 process::exit(1);
             }
         }
@@ -622,13 +631,9 @@ fn main() {
         let min_size = min_size + (num_channels - 1 - (min_size + 1) % num_channels);
         match channel.append_data(min_size) {
             cpal::UnknownTypeBuffer::F32(mut buffer) => {
-                if let Err(err) = mixer.add_next_slice(buffer.deref_mut()) {
-                    writeln!(&mut stderr(),
-                             "{}: error: {}",
-                             get_prog_name(),
-                             err.description())
-                        .unwrap();
-                }
+                mixer.add_next_slice(buffer.deref_mut())
+                     .map_err(|ref err| print_error!(err, "mixing streams"))
+                     .ok();
             }
 
             cpal::UnknownTypeBuffer::U16(_) => {
