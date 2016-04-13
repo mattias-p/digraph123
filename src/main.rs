@@ -37,6 +37,7 @@ impl Error for MyError {
             &MyError::Io(_) => "An I/O error ocurred",
         }
     }
+
     fn cause(&self) -> Option<&Error> {
         match self {
             &MyError::ParseInt(ref err) => Some(err as &std::error::Error),
@@ -343,12 +344,15 @@ impl Stream for Player {
     fn min_bound(&self) -> usize {
         self.track.min_bound()
     }
+
     fn is_eos(&self) -> bool {
         self.track.is_eos()
     }
+
     fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
         self.track.add_next_slice(buf)
     }
+
     fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         let mut tails = vec![];
         while self.track.is_eos() {
@@ -381,6 +385,7 @@ impl Stream for Mixer {
     fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         Ok(vec![])
     }
+
     fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
         if let Some(err) = self.errors.pop_front() {
             return Err(err);
@@ -434,6 +439,7 @@ impl Stream for Mixer {
             })
             .unwrap_or(0)
     }
+
     fn is_eos(&self) -> bool {
         self.streams.len() > 0 &&
         self.streams
