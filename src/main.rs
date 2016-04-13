@@ -84,8 +84,8 @@ pub struct VorbisStream {
     packets: vorbis::PacketsIntoIter<File>,
 }
 
-impl VorbisStream {
-    fn next_slice(&mut self, size: usize) -> Result<&[f32], MyError> {
+impl Stream for VorbisStream {
+    fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
         if self.offset == self.packet.len() {
             if let Some(next_packet) = std::mem::replace(&mut self.next_packet, None) {
                 let mut recycled = std::mem::replace(&mut self.packet, next_packet);
@@ -104,21 +104,18 @@ impl VorbisStream {
             }
         }
         let min = self.min_bound();
-        if size > min {
+        if buf.len() > min {
             panic!("out of bounds in VorbisStream");
         }
         let old_offset = self.offset;
-        self.offset += size;
-        Ok(&self.packet[old_offset..self.offset])
-    }
-}
+        self.offset += buf.len();
 
-impl Stream for VorbisStream {
-    fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
-        let data = try!(self.next_slice(buf.len()));
+        let data = &self.packet[old_offset..self.offset];
+
         for (out, value) in buf.iter_mut().zip(data) {
             *out += *value;
         }
+
         Ok(())
     }
 
