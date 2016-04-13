@@ -10,7 +10,7 @@ extern crate lazy_static;
 use clap::{Arg, App};
 use rand::Rng;
 use regex::Regex;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fmt;
 use std::fs::File;
@@ -73,8 +73,8 @@ impl fmt::Display for MyError {
 trait Stream {
     fn min_bound(&self) -> usize;
     fn max_bound(&self) -> Option<usize>;
-    fn next_slice(&mut self, usize) -> Result<&[f32], MyError>;
     fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError>;
+    fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError>;
 }
 
 pub struct VorbisStream {
@@ -84,7 +84,7 @@ pub struct VorbisStream {
     packets: vorbis::PacketsIntoIter<File>,
 }
 
-impl Stream for VorbisStream {
+impl VorbisStream {
     fn next_slice(&mut self, size: usize) -> Result<&[f32], MyError> {
         if self.offset == self.packet.len() {
             if let Some(next_packet) = std::mem::replace(&mut self.next_packet, None) {
@@ -110,6 +110,16 @@ impl Stream for VorbisStream {
         let old_offset = self.offset;
         self.offset += size;
         Ok(&self.packet[old_offset..self.offset])
+    }
+}
+
+impl Stream for VorbisStream {
+    fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
+        let data = try!(self.next_slice(buf.len()));
+        for (out, value) in buf.iter_mut().zip(data) {
+            *out += *value;
+        }
+        Ok(())
     }
 
     fn min_bound(&self) -> usize {
@@ -147,13 +157,23 @@ impl EmptyStream {
     }
 }
 
-impl Stream for EmptyStream {
+impl EmptyStream {
     fn next_slice(&mut self, size: usize) -> Result<&[f32], MyError> {
         if size == 0 {
             Ok(&self.0)
         } else {
             panic!("out of bounds in EmptyStream");
         }
+    }
+}
+
+impl Stream for EmptyStream {
+    fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
+        let data = try!(self.next_slice(buf.len()));
+        for (out, value) in buf.iter_mut().zip(data) {
+            *out += *value;
+        }
+        Ok(())
     }
     fn min_bound(&self) -> usize {
         0
@@ -184,13 +204,8 @@ impl Track {
 }
 
 impl Stream for Track {
-    fn next_slice(&mut self, size: usize) -> Result<&[f32], MyError> {
-        let min = self.min_bound();
-        if size > min {
-            panic!("out of bounds in Track");
-        }
-        self.splice_point = self.splice_point.map(|sp| sp - size as u64);
-        self.stream.next_slice(size)
+    fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
+        self.stream.add_next_slice(buf)
     }
 
     fn min_bound(&self) -> usize {
@@ -235,16 +250,6 @@ impl Digraph {
             state: 0,
             digraph: self,
             rng: rng,
-        }
-    }
-    fn print(&self) {
-        for (tail, heads) in self.0.iter().enumerate() {
-            for item in heads {
-                let &(ref head, ref paths) = item;
-                for path in paths {
-                    println!("{} -> {}: {}", tail + 1, head + 1, path.display());
-                }
-            }
         }
     }
 }
@@ -345,8 +350,8 @@ impl Stream for Player {
     fn max_bound(&self) -> Option<usize> {
         self.track.max_bound()
     }
-    fn next_slice(&mut self, size: usize) -> Result<&[f32], MyError> {
-        self.track.next_slice(size)
+    fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
+        self.track.add_next_slice(buf)
     }
     fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         let mut tails = vec![];
@@ -365,41 +370,40 @@ impl Stream for Player {
 struct Mixer {
     coefficient: f32,
     streams: Vec<Box<Stream>>,
+    errors: VecDeque<MyError>,
 }
 
 impl Mixer {
     fn new(streams: Vec<Box<Stream>>) -> Mixer {
         Mixer {
             coefficient: 1.0 / streams.len() as f32,
+            errors: VecDeque::with_capacity(streams.len()),
             streams: streams,
         }
     }
-    fn mix_next_slice(&mut self, buf: &mut [f32]) -> Vec<MyError> {
-        let size = buf.len();
-        let coefficient = self.coefficient;
-        for out in buf.iter_mut() {
-            *out = 0.0;
-        }
-        self.each_next_slice(size,
-                             &mut |slice| {
-                                 for (out, value) in buf.iter_mut().zip(slice) {
-                                     *out += coefficient * *value;
-                                 }
-                             })
+}
+
+impl Stream for Mixer {
+    fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
+        Ok(vec![])
     }
-    fn each_next_slice(&mut self, size: usize, f: &mut FnMut(&[f32])) -> Vec<MyError> {
-        let mut errors = vec![];
-        for stream in self.streams.iter_mut() {
-            match stream.next_slice(size) {
-                Err(err) => errors.push(err),
-                Ok(slice) => f(slice),
-            }
+    fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
+        if let Some(err) = self.errors.pop_front() {
+            return Err(err);
         }
 
         let mut new_tails = vec![];
         let mut empties = vec![];
+
+        for out in buf.iter_mut() {
+            *out = 0.0;
+        }
+
         for (i, stream) in self.streams.iter_mut().enumerate() {
-            if stream.min_bound() == 0 {
+            if let Err(err) = stream.add_next_slice(buf) {
+                self.errors.push_back(err);
+                empties.push(i);
+            } else if stream.min_bound() == 0 {
                 match stream.get_tails() {
                     Ok(tails) => {
                         new_tails.extend(tails);
@@ -408,23 +412,32 @@ impl Mixer {
                         }
                     }
                     Err(err) => {
-                        errors.push(err);
+                        self.errors.push_back(err);
+                        empties.push(i);
                     }
                 }
             }
         }
+
+        for out in buf.iter_mut() {
+            *out *= self.coefficient;
+        }
+
         empties.reverse();
+
         for i in empties {
             self.streams.swap_remove(i);
         }
+
         self.streams.extend(new_tails);
 
-        if errors.len() == 0 {
-            vec![]
+        if let Some(err) = self.errors.pop_front() {
+            Err(err)
         } else {
-            errors
+            Ok(())
         }
     }
+
     fn min_bound(&self) -> usize {
         self.streams
             .iter()
@@ -604,16 +617,19 @@ fn main() {
         let min_size = min_size + (num_channels - 1 - (min_size + 1) % num_channels);
         match channel.append_data(min_size) {
             cpal::UnknownTypeBuffer::F32(mut buffer) => {
-                mixer.mix_next_slice(buffer.deref_mut());
-            }   
+                if let Err(err) = mixer.add_next_slice(buffer.deref_mut()) {
+                    let prog_name = &std::env::args().next().expect("std::env::args()");
+                    writeln!(&mut stderr(), "{}: error: {}", prog_name, err.description()).unwrap();
+                }
+            }
 
             cpal::UnknownTypeBuffer::U16(_) => {
                 panic!("unsupported buffer type");
-            }   
+            }
 
             cpal::UnknownTypeBuffer::I16(_) => {
                 panic!("unsupported buffer type");
-            }   
+            }
         };
 
         channel.play();
