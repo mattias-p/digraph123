@@ -154,23 +154,15 @@ impl EmptyStream {
     }
 }
 
-impl EmptyStream {
-    fn next_slice(&mut self, size: usize) -> Result<&[f32], MyError> {
-        if size == 0 {
-            Ok(&self.0)
-        } else {
-            panic!("out of bounds in EmptyStream");
-        }
-    }
-}
+impl EmptyStream {}
 
 impl Stream for EmptyStream {
     fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
-        let data = try!(self.next_slice(buf.len()));
-        for (out, value) in buf.iter_mut().zip(data) {
-            *out += *value;
+        if buf.len() == 0 {
+            Ok(())
+        } else {
+            panic!("out of bounds in EmptyStream");
         }
-        Ok(())
     }
     fn min_bound(&self) -> usize {
         0
