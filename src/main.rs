@@ -72,7 +72,7 @@ impl fmt::Display for MyError {
 
 trait Stream {
     fn min_bound(&self) -> usize;
-    fn max_bound(&self) -> Option<usize>;
+    fn is_eos(&self) -> bool;
     fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError>;
     fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError>;
 }
@@ -131,12 +131,8 @@ impl Stream for VorbisStream {
         }
     }
 
-    fn max_bound(&self) -> Option<usize> {
-        if self.next_packet.is_none() {
-            Some(self.min_bound())
-        } else {
-            None
-        }
+    fn is_eos(&self) -> bool {
+        self.next_packet.is_none() && self.min_bound() == 0
     }
 
     fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
@@ -162,12 +158,15 @@ impl Stream for EmptyStream {
             panic!("out of bounds in EmptyStream");
         }
     }
+
     fn min_bound(&self) -> usize {
         0
     }
-    fn max_bound(&self) -> Option<usize> {
-        Some(0)
+
+    fn is_eos(&self) -> bool {
+        true
     }
+
     fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         Ok(vec![])
     }
@@ -205,20 +204,14 @@ impl Stream for Track {
         }
     }
 
-    fn max_bound(&self) -> Option<usize> {
-        let max = self.stream.max_bound();
-        let sp = self.splice_point_as_usize();
-        if let (Some(sp), Some(max)) = (sp, max) {
-            Some(std::cmp::min(sp, max))
-        } else {
-            sp.or(max)
-        }
+    fn is_eos(&self) -> bool {
+        self.splice_point == Some(0) || self.stream.is_eos()
     }
 
     fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
-        if self.max_bound() == Some(0) {
+        if self.is_eos() {
             let tail = std::mem::replace(&mut self.stream, Box::new(EmptyStream::new()));
-            if tail.max_bound() != Some(0) {
+            if !tail.is_eos() {
                 Ok(vec![tail])
             } else {
                 Ok(vec![])
@@ -339,7 +332,7 @@ impl Player {
             },
             play_list: tracks,
         };
-        if let Some(0) = player.max_bound() {
+        if player.is_eos() {
             try!(player.get_tails());
         }
         Ok(player)
@@ -350,15 +343,15 @@ impl Stream for Player {
     fn min_bound(&self) -> usize {
         self.track.min_bound()
     }
-    fn max_bound(&self) -> Option<usize> {
-        self.track.max_bound()
+    fn is_eos(&self) -> bool {
+        self.track.is_eos()
     }
     fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
         self.track.add_next_slice(buf)
     }
     fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         let mut tails = vec![];
-        while self.track.max_bound() == Some(0) {
+        while self.track.is_eos() {
             tails.extend(try!(self.track.get_tails()));
             if let Some(new_track) = self.play_list.next() {
                 self.track = try!(new_track);
@@ -410,7 +403,7 @@ impl Stream for Mixer {
                 match stream.get_tails() {
                     Ok(tails) => {
                         new_tails.extend(tails);
-                        if stream.max_bound() == Some(0) {
+                        if stream.is_eos() {
                             empties.push(i);
                         }
                     }
@@ -451,22 +444,11 @@ impl Stream for Mixer {
             })
             .unwrap_or(0)
     }
-    fn max_bound(&self) -> Option<usize> {
+    fn is_eos(&self) -> bool {
+        self.streams.len() > 0 &&
         self.streams
             .iter()
-            .fold(None as Option<Option<usize>>, |acc, stream| {
-                let max = stream.max_bound();
-                if let Some(acc_max) = acc {
-                    if let (Some(acc_max), Some(max)) = (acc_max, max) {
-                        Some(Some(std::cmp::min(acc_max, max)))
-                    } else {
-                        Some(acc_max.or(max))
-                    }
-                } else {
-                    Some(max)
-                }
-            })
-            .unwrap_or(Some(0))
+            .any(|stream| stream.is_eos())
     }
 }
 
