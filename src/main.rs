@@ -154,8 +154,6 @@ impl EmptyStream {
     }
 }
 
-impl EmptyStream {}
-
 impl Stream for EmptyStream {
     fn add_next_slice(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
         if buf.len() == 0 {
