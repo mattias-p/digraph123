@@ -195,16 +195,16 @@ impl Stream for Track {
     }
 
     fn is_eos(&self) -> bool {
-        self.splice_point == Some(0) || self.stream.is_eos()
+        self.stream.is_eos()
     }
 
     fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
-        if self.is_eos() {
+        if self.max_read() == 0 {
             let tail = std::mem::replace(&mut self.stream, Box::new(EmptyStream));
-            if !tail.is_eos() {
-                Ok(vec![tail])
-            } else {
+            if tail.is_eos() {
                 Ok(vec![])
+            } else {
+                Ok(vec![tail])
             }
         } else {
             panic!("unconsumed data");
@@ -310,6 +310,7 @@ fn vorbis_track(path: &Path) -> Result<Track, MyError> {
 
 struct Player {
     track: Track,
+    lookahead: Option<Track>,
     play_list: Box<Iterator<Item = Result<Track, MyError>>>,
 }
 
@@ -320,9 +321,13 @@ impl Player {
                 stream: Box::new(EmptyStream),
                 splice_point: None,
             },
+            lookahead: Some(Track {
+                stream: Box::new(EmptyStream),
+                splice_point: None,
+            }),
             play_list: tracks,
         };
-        if player.is_eos() {
+        if player.max_read() == 0 {
             try!(player.get_tails());
         }
         Ok(player)
@@ -335,7 +340,7 @@ impl Stream for Player {
     }
 
     fn is_eos(&self) -> bool {
-        self.track.is_eos()
+        self.lookahead.is_none() && self.track.is_eos()
     }
 
     fn read_add(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
@@ -344,7 +349,7 @@ impl Stream for Player {
 
     fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         let mut tails = vec![];
-        while self.track.is_eos() {
+        while self.track.max_read() == 0 {
             tails.extend(try!(self.track.get_tails()));
             if let Some(new_track) = self.play_list.next() {
                 self.track = try!(new_track);
@@ -430,10 +435,10 @@ impl Stream for Mixer {
     }
 
     fn is_eos(&self) -> bool {
-        self.streams.len() > 0 &&
+        self.streams.len() == 0 ||
         self.streams
             .iter()
-            .any(|stream| stream.is_eos())
+            .all(|stream| stream.is_eos())
     }
 }
 
