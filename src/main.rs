@@ -593,9 +593,9 @@ fn main() {
     let num_channels = channel_stream_config.0 as usize;
 
     loop {
-        let min_size = mixer.max_read();
-        let min_size = min_size + (num_channels - 1 - (min_size + 1) % num_channels);
-        match channel.append_data(min_size) {
+        let max_read = mixer.max_read();
+        assert_eq!(max_read % num_channels, 0);
+        match channel.append_data(max_read) {
             cpal::UnknownTypeBuffer::F32(mut buffer) => {
                 for out in buffer.deref_mut().iter_mut() {
                     *out = 0.0;
