@@ -104,8 +104,7 @@ impl Stream for VorbisStream {
                 }
             }
         }
-        let min = self.max_read();
-        if buf.len() > min {
+        if buf.len() > self.max_read() {
             panic!("out of bounds in VorbisStream");
         }
         let old_offset = self.offset;
@@ -188,12 +187,10 @@ impl Stream for Track {
     }
 
     fn max_read(&self) -> usize {
-        let min = self.stream.max_read();
-        let sp = self.splice_point_as_usize();
-        if let Some(sp) = sp {
-            std::cmp::min(sp, min)
+        if let Some(sp) = self.splice_point_as_usize() {
+            std::cmp::min(sp, self.stream.max_read())
         } else {
-            min
+            self.stream.max_read()
         }
     }
 
@@ -422,14 +419,14 @@ impl Stream for Mixer {
     }
 
     fn max_read(&self) -> usize {
-        self.streams
-            .iter()
-            .fold(None as Option<usize>, |acc, stream| {
-                let min = stream.max_read();
-                acc.map(|acc| std::cmp::min(acc, min))
-                   .or(Some(min))
-            })
-            .unwrap_or(0)
+        if self.streams.len() == 0 {
+            0
+        } else {
+            self.streams
+                .iter()
+                .map(|stream| stream.max_read())
+                .fold(usize::max_value(), std::cmp::min)
+        }
     }
 
     fn is_eos(&self) -> bool {
