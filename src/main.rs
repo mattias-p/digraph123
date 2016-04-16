@@ -605,10 +605,10 @@ fn main() {
 
     let num_channels = channel_stream_config.0 as usize;
 
-    loop {
+    while !mixer.is_eos() {
         let max_read = mixer.max_read();
         if max_read == 0 {
-            insist!(mixer.load(), "loading mixer");
+            mixer.load().map_err(|err| print_error!(err, "error loading mixer")).ok();
             continue;
         }
         assert_eq!(max_read % num_channels, 0);
