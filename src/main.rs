@@ -87,6 +87,31 @@ pub struct VorbisStream {
 
 impl Stream for VorbisStream {
     fn read_add(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
+        if buf.len() > self.max_read() {
+            panic!("out of bounds in VorbisStream");
+        }
+
+        let old_offset = self.offset;
+        self.offset += buf.len();
+
+        let data = &self.packet[old_offset..self.offset];
+
+        for (out, value) in buf.iter_mut().zip(data) {
+            *out += *value;
+        }
+
+        Ok(())
+    }
+
+    fn max_read(&self) -> usize {
+        self.packet.len() - self.offset
+    }
+
+    fn is_eos(&self) -> bool {
+        self.next_packet.is_none() && self.max_read() == 0
+    }
+
+    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         if self.offset == self.packet.len() {
             if let Some(next_packet) = std::mem::replace(&mut self.next_packet, None) {
                 let mut recycled = std::mem::replace(&mut self.packet, next_packet);
@@ -104,38 +129,6 @@ impl Stream for VorbisStream {
                 }
             }
         }
-        if buf.len() > self.max_read() {
-            panic!("out of bounds in VorbisStream");
-        }
-        let old_offset = self.offset;
-        self.offset += buf.len();
-
-        let data = &self.packet[old_offset..self.offset];
-
-        for (out, value) in buf.iter_mut().zip(data) {
-            *out += *value;
-        }
-
-        Ok(())
-    }
-
-    fn max_read(&self) -> usize {
-        if self.offset == self.packet.len() {
-            if let Some(ref packet) = self.next_packet {
-                packet.len()
-            } else {
-                0
-            }
-        } else {
-            self.packet.len() - self.offset
-        }
-    }
-
-    fn is_eos(&self) -> bool {
-        self.next_packet.is_none() && self.max_read() == 0
-    }
-
-    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         Ok(vec![])
     }
 }
@@ -144,11 +137,10 @@ struct EmptyStream;
 
 impl Stream for EmptyStream {
     fn read_add(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
-        if buf.len() == 0 {
-            Ok(())
-        } else {
+        if buf.len() > self.max_read() {
             panic!("out of bounds in EmptyStream");
         }
+        Ok(())
     }
 
     fn max_read(&self) -> usize {
@@ -183,6 +175,9 @@ impl Track {
 
 impl Stream for Track {
     fn read_add(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
+        if buf.len() > self.max_read() {
+            panic!("out of bounds in Track");
+        }
         self.stream.read_add(buf)
     }
 
@@ -200,14 +195,15 @@ impl Stream for Track {
 
     fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         if self.max_read() == 0 {
-            let tail = std::mem::replace(&mut self.stream, Box::new(EmptyStream));
-            if tail.is_eos() {
-                Ok(vec![])
-            } else {
+            try!(self.stream.load());
+            if self.splice_point == Some(0) {
+                let tail = std::mem::replace(&mut self.stream, Box::new(EmptyStream));
                 Ok(vec![tail])
+            } else {
+                Ok(vec![])
             }
         } else {
-            panic!("unconsumed data");
+            Ok(vec![])
         }
     }
 }
@@ -296,12 +292,13 @@ fn vorbis_track(path: &Path) -> Result<Track, MyError> {
     } else {
         None
     };
-    let stream = VorbisStream {
+    let mut stream = VorbisStream {
         offset: 0,
         packet: vec![],
         next_packet: first,
         packets: packets,
     };
+    try!(stream.load());
     Ok(Track {
         stream: Box::new(stream),
         splice_point: splice_point,
@@ -345,6 +342,9 @@ impl Stream for Player {
     }
 
     fn read_add(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
+        if buf.len() > self.max_read() {
+            panic!("out of bounds in Player");
+        }
         self.track.read_add(buf)
     }
 
@@ -352,10 +352,12 @@ impl Stream for Player {
         let mut tails = vec![];
         while self.track.max_read() == 0 {
             tails.extend(try!(self.track.load()));
-            if let Some(new_track) = self.play_list.next() {
-                self.track = try!(new_track);
-            } else {
-                break;
+            if self.track.is_eos() {
+                if let Some(new_track) = self.play_list.next() {
+                    self.track = try!(new_track);
+                } else {
+                    break;
+                }
             }
         }
         Ok(tails)
@@ -378,22 +380,11 @@ impl Mixer {
 
 impl Stream for Mixer {
     fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
-        Ok(vec![])
-    }
-
-    fn read_add(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
-        if let Some(err) = self.errors.pop_front() {
-            return Err(err);
-        }
-
         let mut new_tails = vec![];
         let mut empties = vec![];
 
         for (i, stream) in self.streams.iter_mut().enumerate() {
-            if let Err(err) = stream.read_add(buf) {
-                self.errors.push_back(err);
-                empties.push(i);
-            } else if stream.max_read() == 0 {
+            if stream.max_read() == 0 {
                 match stream.load() {
                     Ok(tails) => {
                         new_tails.extend(tails);
@@ -416,6 +407,36 @@ impl Stream for Mixer {
         }
 
         self.streams.extend(new_tails);
+
+        if let Some(err) = self.errors.pop_front() {
+            Err(err)
+        } else {
+            Ok(vec![])
+        }
+    }
+
+    fn read_add(&mut self, buf: &mut [f32]) -> Result<(), MyError> {
+        if buf.len() > self.max_read() {
+            panic!("out of bounds in Mixer");
+        }
+        if let Some(err) = self.errors.pop_front() {
+            return Err(err);
+        }
+
+        let mut empties = vec![];
+
+        for (i, stream) in self.streams.iter_mut().enumerate() {
+            if let Err(err) = stream.read_add(buf) {
+                self.errors.push_back(err);
+                empties.push(i);
+            }
+        }
+
+        empties.reverse();
+
+        for i in empties {
+            self.streams.swap_remove(i);
+        }
 
         if let Some(err) = self.errors.pop_front() {
             Err(err)
@@ -600,6 +621,10 @@ fn main() {
 
     loop {
         let max_read = mixer.max_read();
+        if max_read == 0 {
+            insist!(mixer.load(), "loading mixer");
+            continue;
+        }
         assert_eq!(max_read % num_channels, 0);
         match channel.append_data(max_read) {
             cpal::UnknownTypeBuffer::F32(mut buffer) => {
