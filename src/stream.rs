@@ -1,5 +1,4 @@
 use std::cmp;
-use std::collections;
 use std::error;
 use std::fmt;
 use std::fs;
@@ -267,15 +266,11 @@ impl Stream for Player {
 
 pub struct Mixer {
     streams: Vec<Box<Stream>>,
-    errors: collections::VecDeque<Error>,
 }
 
 impl Mixer {
     pub fn new(streams: Vec<Box<Stream>>) -> Mixer {
-        Mixer {
-            errors: collections::VecDeque::with_capacity(streams.len()),
-            streams: streams,
-        }
+        Mixer { streams: streams }
     }
 }
 
@@ -309,12 +304,9 @@ impl Stream for Mixer {
     }
 
     fn load(&mut self) -> Result<Vec<Box<Stream>>> {
-        if let Some(err) = self.errors.pop_front() {
-            return Err(err);
-        }
-
         let mut new_tails = vec![];
         let mut empties = vec![];
+        let mut errors = vec![];
 
         for (i, stream) in self.streams.iter_mut().enumerate() {
             if stream.max_read() == 0 {
@@ -326,7 +318,7 @@ impl Stream for Mixer {
                         }
                     }
                     Err(err) => {
-                        self.errors.push_back(err);
+                        errors.push(err);
                         empties.push(i);
                     }
                 }
@@ -341,8 +333,10 @@ impl Stream for Mixer {
 
         self.streams.extend(new_tails);
 
-        if let Some(err) = self.errors.pop_front() {
-            Err(err)
+        if errors.len() == 1 {
+            Err(errors.pop().unwrap())
+        } else if errors.len() > 1 {
+            Err(Error::Multiple(errors))
         } else {
             Ok(vec![])
         }
@@ -354,6 +348,7 @@ pub enum Error {
     Io(io::Error),
     Parse(num::ParseIntError),
     Vorbis(vorbis::VorbisError),
+    Multiple(Vec<Error>),
 }
 
 impl error::Error for Error {
@@ -362,6 +357,7 @@ impl error::Error for Error {
             &Error::Io(ref err) => err.description(),
             &Error::Parse(ref err) => err.description(),
             &Error::Vorbis(ref err) => err.description(),
+            &Error::Multiple(_) => "Multiple errors occurred",
         }
     }
 
@@ -370,6 +366,7 @@ impl error::Error for Error {
             &Error::Io(ref err) => Some(err as &error::Error),
             &Error::Parse(ref err) => Some(err as &error::Error),
             &Error::Vorbis(ref err) => Some(err as &error::Error),
+            &Error::Multiple(_) => None,
         }
     }
 }
@@ -398,6 +395,10 @@ impl fmt::Display for Error {
             &Error::Io(ref err) => write!(f, "IO error: {}", err),
             &Error::Parse(ref err) => write!(f, "Parse error: {}", err),
             &Error::Vorbis(ref err) => write!(f, "Vorbis error: {}", err),
+            &Error::Multiple(ref err) => {
+                let parts: Vec<_> = err.iter().map(Error::to_string).collect();
+                write!(f, "Multiple errors:\n * {}", parts.join("\n * "))
+            }
         }
     }
 }
