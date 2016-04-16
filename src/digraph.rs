@@ -1,8 +1,8 @@
 use rand::Rng;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::collections;
+use std::path;
 
-pub struct Digraph(Vec<Vec<(usize, Vec<PathBuf>)>>);
+pub struct Digraph(Vec<Vec<(usize, Vec<path::PathBuf>)>>);
 
 impl Digraph {
     pub fn into_random_walk(self, rng: Box<Rng>) -> IntoRandomWalk {
@@ -15,20 +15,20 @@ impl Digraph {
 }
 
 pub struct DigraphBuilder {
-    indices: HashMap<String, usize>,
-    arrows: HashMap<(usize, usize), Vec<PathBuf>>,
+    indices: collections::HashMap<String, usize>,
+    arrows: collections::HashMap<(usize, usize), Vec<path::PathBuf>>,
 }
 
 impl DigraphBuilder {
     pub fn new() -> DigraphBuilder {
-        let mut indices = HashMap::new();
+        let mut indices = collections::HashMap::new();
         indices.insert("start".to_string(), 0);
         DigraphBuilder {
             indices: indices,
-            arrows: HashMap::new(),
+            arrows: collections::HashMap::new(),
         }
     }
-    pub fn arrow(mut self, tail: String, head: String, path: PathBuf) -> Self {
+    pub fn arrow(mut self, tail: String, head: String, path: path::PathBuf) -> Self {
         let next_index = self.indices.len();
         let tail = *self.indices.entry(tail).or_insert(next_index);
         let next_index = self.indices.len();
@@ -66,7 +66,7 @@ pub struct IntoRandomWalk {
 }
 
 impl IntoRandomWalk {
-    fn next_once(&mut self) -> Option<&Path> {
+    fn next_once(&mut self) -> Option<&path::Path> {
         let ref mut rng = self.rng;
         let cells = self.digraph.0.get(self.state);
         if let Some(&(new_state, ref arrows)) = cells.and_then(|cells| rng.choose(cells)) {
@@ -79,8 +79,8 @@ impl IntoRandomWalk {
 }
 
 impl<'a> Iterator for IntoRandomWalk {
-    type Item = PathBuf;
-    fn next(&mut self) -> Option<PathBuf> {
+    type Item = path::PathBuf;
+    fn next(&mut self) -> Option<path::PathBuf> {
         let path = self.next_once().map(|p| p.to_path_buf());
         path.or_else(|| self.next_once().map(|p| p.to_path_buf()))
     }

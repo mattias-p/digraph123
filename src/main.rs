@@ -10,25 +10,23 @@ extern crate lazy_static;
 mod digraph;
 mod stream;
 
-use clap::{Arg, App};
-use digraph::{Digraph, DigraphBuilder};
-use regex::Regex;
 use std::error::Error;
-use std::fs::File;
-use std::io::{Write, stderr};
+use std::fs;
+use std::io;
+use std::io::Write;
 use std::ops::DerefMut;
 use std::path::Path;
 use std::process;
 use std::thread;
 use std::time;
-use stream::{Stream, Track, Player, Mixer, MyError};
+use stream::Stream;
 
 macro_rules! print_error {
     ($err:expr, $fmt:tt $(, $arg:expr)*) => {{
-        writeln!(&mut stderr(), concat!("{}: error: ", $fmt, ": {}"), get_prog_name() $(, $arg)*, $err.description()).ok();
+        writeln!(&mut io::stderr(), concat!("{}: error: ", $fmt, ": {}"), get_prog_name() $(, $arg)*, $err.description()).ok();
         let err = $err;
         while let Some(err) = err.cause() {
-            writeln!(&mut stderr(), "\tcaused by: {}", err.description()).unwrap();
+            writeln!(&mut io::stderr(), "\tcaused by: {}", err.description()).unwrap();
         }
     }}
 }
@@ -62,7 +60,7 @@ fn get_prog_name() -> &'static str {
 
 fn path_to_section(path: &Path) -> Option<(String, String, Option<String>)> {
     lazy_static! {
-        static ref SECTION_RE: Regex = Regex::new(r"^([^-]+)-([^-]+)(?:-(.+))?.ogg$").unwrap();
+        static ref SECTION_RE: regex::Regex = regex::Regex::new(r"^([^-]+)-([^-]+)(?:-(.+))?.ogg$").unwrap();
     }
     path.file_name()
         .and_then(|os_str| os_str.to_str())
@@ -74,8 +72,8 @@ fn path_to_section(path: &Path) -> Option<(String, String, Option<String>)> {
         })
 }
 
-fn path_to_stream_config(path: &Path) -> Result<(u8, u32), MyError> {
-    let file = try!(File::open(path));
+fn path_to_stream_config(path: &Path) -> Result<(u8, u32), stream::MyError> {
+    let file = try!(fs::File::open(path));
     let mut decoder = try!(vorbis::Decoder::new(file));
     let packet = try!(decoder.packets().next().expect("first packet"));
     Ok((packet.channels as u8, packet.rate as u32))
@@ -85,20 +83,20 @@ fn main() {
     get_prog_name();
 
     let mut channel_stream_config = None;
-    let matches = App::new("digraph123")
+    let matches = clap::App::new("digraph123")
                       .version("1.0.0")
                       .author("Mattias Päivärinta")
                       .about("Play digraph shaped audio recordings using random walk")
-                      .arg(Arg::with_name("dir")
+                      .arg(clap::Arg::with_name("dir")
                                .help("A digraph directory")
                                .index(1)
                                .multiple(true))
                       .get_matches();
     let dirs: Vec<_> = matches.values_of("dir").map(|v| v.collect()).unwrap_or(vec![]);
-    let mut streams: Vec<Box<Stream>> = vec![];
+    let mut streams: Vec<Box<stream::Stream>> = vec![];
     for dir in dirs {
         let dir_files = insist!(std::fs::read_dir(dir), "reading directory '{}'", dir);
-        let mut digraph_builder = DigraphBuilder::new();
+        let mut digraph_builder = digraph::DigraphBuilder::new();
         for entry in dir_files {
             let entry = insist!(entry, "traversing directory '{}'", dir);
             let path = entry.path();
@@ -114,16 +112,16 @@ fn main() {
                 }
             }
         }
-        let digraph: Digraph = digraph_builder.into();
+        let digraph: digraph::Digraph = digraph_builder.into();
         let tracks = digraph.into_random_walk(Box::new(rand::thread_rng()))
-                            .map(|p| Track::vorbis(p.as_path()));
-        let stream = Player::new(Box::new(tracks)).unwrap();
+                            .map(|p| stream::Track::vorbis(p.as_path()));
+        let stream = stream::Player::new(Box::new(tracks)).unwrap();
 
         streams.push(Box::new(stream));
     }
 
     let coefficient = 1.0 / streams.len() as f32;
-    let mut mixer = Mixer::new(streams);
+    let mut mixer = stream::Mixer::new(streams);
 
     let channel_stream_config = channel_stream_config.unwrap();
 

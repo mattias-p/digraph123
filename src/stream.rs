@@ -1,11 +1,11 @@
 use std;
-use std::collections::VecDeque;
-use std::error::Error;
+use std::collections;
+use std::error;
 use std::fmt;
-use std::fs::File;
+use std::fs;
 use std::io;
-use std::num::ParseIntError;
-use std::path::Path;
+use std::num;
+use std::path;
 use std::str::FromStr;
 use vorbis;
 
@@ -42,11 +42,11 @@ pub struct VorbisStream {
     offset: usize,
     packet: Vec<f32>,
     next_packet: Option<Vec<f32>>,
-    packets: vorbis::PacketsIntoIter<File>,
+    packets: vorbis::PacketsIntoIter<fs::File>,
 }
 
 impl VorbisStream {
-    pub fn new(decoder: vorbis::Decoder<File>) -> Result<VorbisStream, MyError> {
+    pub fn new(decoder: vorbis::Decoder<fs::File>) -> Result<VorbisStream, MyError> {
         let mut packets = decoder.into_packets();
         let first = if let Some(first) = packets.next() {
             Some(try!(first)
@@ -127,10 +127,14 @@ impl Track {
         }
     }
 
-    pub fn vorbis(path: &Path) -> Result<Track, MyError> {
+    pub fn vorbis(path: &path::Path) -> Result<Track, MyError> {
         let display = path.display();
-        let file = match File::open(&path) {
-            Err(why) => panic!("Couldn't open {}: {}", display, Error::description(&why)),
+        let file = match fs::File::open(&path) {
+            Err(why) => {
+                panic!("Couldn't open {}: {}",
+                       display,
+                       error::Error::description(&why))
+            }
             Ok(file) => file,
         };
 
@@ -259,13 +263,13 @@ impl Stream for Player {
 
 pub struct Mixer {
     streams: Vec<Box<Stream>>,
-    errors: VecDeque<MyError>,
+    errors: collections::VecDeque<MyError>,
 }
 
 impl Mixer {
     pub fn new(streams: Vec<Box<Stream>>) -> Mixer {
         Mixer {
-            errors: VecDeque::with_capacity(streams.len()),
+            errors: collections::VecDeque::with_capacity(streams.len()),
             streams: streams,
         }
     }
@@ -344,11 +348,11 @@ impl Stream for Mixer {
 #[derive(Debug)]
 pub enum MyError {
     Io(io::Error),
-    ParseInt(ParseIntError),
+    ParseInt(num::ParseIntError),
     Vorbis(vorbis::VorbisError),
 }
 
-impl Error for MyError {
+impl error::Error for MyError {
     fn description(&self) -> &str {
         match self {
             &MyError::ParseInt(_) => "A string could not be parsed as an integer",
@@ -357,7 +361,7 @@ impl Error for MyError {
         }
     }
 
-    fn cause(&self) -> Option<&Error> {
+    fn cause(&self) -> Option<&error::Error> {
         match self {
             &MyError::ParseInt(ref err) => Some(err as &std::error::Error),
             &MyError::Vorbis(ref err) => err.cause(),
@@ -366,8 +370,8 @@ impl Error for MyError {
     }
 }
 
-impl From<ParseIntError> for MyError {
-    fn from(err: ParseIntError) -> MyError {
+impl From<num::ParseIntError> for MyError {
+    fn from(err: num::ParseIntError) -> MyError {
         MyError::ParseInt(err)
     }
 }
@@ -386,6 +390,6 @@ impl From<io::Error> for MyError {
 
 impl fmt::Display for MyError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(fmt, "{}", Error::description(self))
+        write!(fmt, "{}", error::Error::description(self))
     }
 }
