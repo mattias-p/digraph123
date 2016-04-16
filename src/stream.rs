@@ -13,7 +13,7 @@ pub trait Stream {
     fn is_eos(&self) -> bool;
     fn max_read(&self) -> usize;
     fn read_add(&mut self, buf: &mut [f32]);
-    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError>;
+    fn load(&mut self) -> Result<Vec<Box<Stream>>, Error>;
 }
 
 pub struct EmptyStream;
@@ -33,7 +33,7 @@ impl Stream for EmptyStream {
         }
     }
 
-    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
+    fn load(&mut self) -> Result<Vec<Box<Stream>>, Error> {
         Ok(vec![])
     }
 }
@@ -46,7 +46,7 @@ pub struct VorbisStream {
 }
 
 impl VorbisStream {
-    pub fn new(decoder: vorbis::Decoder<fs::File>) -> Result<VorbisStream, MyError> {
+    pub fn new(decoder: vorbis::Decoder<fs::File>) -> Result<VorbisStream, Error> {
         let mut packets = decoder.into_packets();
         let first = if let Some(first) = packets.next() {
             Some(try!(first)
@@ -92,7 +92,7 @@ impl Stream for VorbisStream {
         }
     }
 
-    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
+    fn load(&mut self) -> Result<Vec<Box<Stream>>, Error> {
         if self.offset == self.packet.len() {
             if let Some(next_packet) = std::mem::replace(&mut self.next_packet, None) {
                 let mut recycled = std::mem::replace(&mut self.packet, next_packet);
@@ -127,7 +127,7 @@ impl Track {
         }
     }
 
-    pub fn vorbis(path: &path::Path) -> Result<Track, MyError> {
+    pub fn vorbis(path: &path::Path) -> Result<Track, Error> {
         let display = path.display();
         let file = match fs::File::open(&path) {
             Err(why) => {
@@ -142,7 +142,7 @@ impl Track {
         let splice_point = try!(decoder.get_comment("SPLICEPOINT"));
         let splice_point = splice_point.iter()
                                        .fold(Ok(None), |acc, value| {
-                                           let res: Result<_, MyError> = acc.and_then(|acc| {
+                                           let res: Result<_, Error> = acc.and_then(|acc| {
                                                let value = try!(u64::from_str(value));
                                                Ok(acc.map(|acc| std::cmp::min(acc, value))
                                                      .or(Some(value)))
@@ -188,7 +188,7 @@ impl Stream for Track {
         self.stream.read_add(buf);
     }
 
-    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
+    fn load(&mut self) -> Result<Vec<Box<Stream>>, Error> {
         if self.max_read() == 0 {
             try!(self.stream.load());
             if self.splice_point == Some(0) {
@@ -206,11 +206,11 @@ impl Stream for Track {
 pub struct Player {
     track: Track,
     lookahead: Option<Track>,
-    play_list: Box<Iterator<Item = Result<Track, MyError>>>,
+    play_list: Box<Iterator<Item = Result<Track, Error>>>,
 }
 
 impl Player {
-    pub fn new(tracks: Box<Iterator<Item = Result<Track, MyError>>>) -> Result<Player, MyError> {
+    pub fn new(tracks: Box<Iterator<Item = Result<Track, Error>>>) -> Result<Player, Error> {
         let mut player = Player {
             track: Track::empty(),
             lookahead: Some(Track::empty()),
@@ -240,7 +240,7 @@ impl Stream for Player {
         self.track.read_add(buf);
     }
 
-    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
+    fn load(&mut self) -> Result<Vec<Box<Stream>>, Error> {
         let mut tails = vec![];
         while self.track.max_read() == 0 {
             let new_tails = self.track.load().map_err(|err| {
@@ -263,7 +263,7 @@ impl Stream for Player {
 
 pub struct Mixer {
     streams: Vec<Box<Stream>>,
-    errors: collections::VecDeque<MyError>,
+    errors: collections::VecDeque<Error>,
 }
 
 impl Mixer {
@@ -304,7 +304,7 @@ impl Stream for Mixer {
         }
     }
 
-    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
+    fn load(&mut self) -> Result<Vec<Box<Stream>>, Error> {
         if let Some(err) = self.errors.pop_front() {
             return Err(err);
         }
@@ -346,49 +346,49 @@ impl Stream for Mixer {
 }
 
 #[derive(Debug)]
-pub enum MyError {
+pub enum Error {
     Io(io::Error),
     ParseInt(num::ParseIntError),
     Vorbis(vorbis::VorbisError),
 }
 
-impl error::Error for MyError {
+impl error::Error for Error {
     fn description(&self) -> &str {
         match self {
-            &MyError::ParseInt(_) => "A string could not be parsed as an integer",
-            &MyError::Vorbis(ref err) => err.description(),
-            &MyError::Io(_) => "An I/O error ocurred",
+            &Error::ParseInt(_) => "A string could not be parsed as an integer",
+            &Error::Vorbis(ref err) => err.description(),
+            &Error::Io(_) => "An I/O error ocurred",
         }
     }
 
     fn cause(&self) -> Option<&error::Error> {
         match self {
-            &MyError::ParseInt(ref err) => Some(err as &std::error::Error),
-            &MyError::Vorbis(ref err) => err.cause(),
-            &MyError::Io(ref err) => Some(err as &std::error::Error),
+            &Error::ParseInt(ref err) => Some(err as &std::error::Error),
+            &Error::Vorbis(ref err) => err.cause(),
+            &Error::Io(ref err) => Some(err as &std::error::Error),
         }
     }
 }
 
-impl From<num::ParseIntError> for MyError {
-    fn from(err: num::ParseIntError) -> MyError {
-        MyError::ParseInt(err)
+impl From<num::ParseIntError> for Error {
+    fn from(err: num::ParseIntError) -> Error {
+        Error::ParseInt(err)
     }
 }
 
-impl From<vorbis::VorbisError> for MyError {
-    fn from(err: vorbis::VorbisError) -> MyError {
-        MyError::Vorbis(err)
+impl From<vorbis::VorbisError> for Error {
+    fn from(err: vorbis::VorbisError) -> Error {
+        Error::Vorbis(err)
     }
 }
 
-impl From<io::Error> for MyError {
-    fn from(err: io::Error) -> MyError {
-        MyError::Io(err)
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Error {
+        Error::Io(err)
     }
 }
 
-impl fmt::Display for MyError {
+impl fmt::Display for Error {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(fmt, "{}", error::Error::description(self))
     }

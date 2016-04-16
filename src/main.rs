@@ -72,7 +72,7 @@ fn path_to_section(path: &Path) -> Option<(String, String, Option<String>)> {
         })
 }
 
-fn path_to_stream_config(path: &Path) -> Result<(u8, u32), stream::MyError> {
+fn path_to_stream_config(path: &Path) -> Result<(u8, u32), stream::Error> {
     let file = try!(fs::File::open(path));
     let mut decoder = try!(vorbis::Decoder::new(file));
     let packet = try!(decoder.packets().next().expect("first packet"));
