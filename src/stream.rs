@@ -309,18 +309,16 @@ impl Stream for Mixer {
         let mut errors = vec![];
 
         for (i, stream) in self.streams.iter_mut().enumerate() {
-            if stream.max_read() == 0 {
-                match stream.load() {
-                    Ok(new_tails) => {
-                        tails.extend(new_tails);
-                        if stream.is_eos() {
-                            empties.push(i);
-                        }
-                    }
-                    Err(err) => {
-                        errors.push(err);
+            match stream.load() {
+                Ok(new_tails) => {
+                    tails.extend(new_tails);
+                    if stream.is_eos() {
                         empties.push(i);
                     }
+                }
+                Err(err) => {
+                    errors.push(err);
+                    empties.push(i);
                 }
             }
         }
