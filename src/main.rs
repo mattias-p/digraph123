@@ -159,6 +159,12 @@ struct Track {
 }
 
 impl Track {
+    fn empty() -> Track {
+        Track {
+            stream: Box::new(EmptyStream),
+            splice_point: None,
+        }
+    }
     fn splice_point_as_usize(&self) -> Option<usize> {
         self.splice_point.and_then(|sp| {
             if sp <= usize::max_value() as u64 {
@@ -311,14 +317,8 @@ struct Player {
 impl Player {
     fn new(tracks: Box<Iterator<Item = Result<Track, MyError>>>) -> Result<Player, MyError> {
         let mut player = Player {
-            track: Track {
-                stream: Box::new(EmptyStream),
-                splice_point: None,
-            },
-            lookahead: Some(Track {
-                stream: Box::new(EmptyStream),
-                splice_point: None,
-            }),
+            track: Track::empty(),
+            lookahead: Some(Track::empty()),
             play_list: tracks,
         };
         if player.max_read() == 0 {
@@ -348,7 +348,12 @@ impl Stream for Player {
     fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         let mut tails = vec![];
         while self.track.max_read() == 0 {
-            tails.extend(try!(self.track.load()));
+            let new_tails = self.track.load().map_err(|err| {
+                self.track = Track::empty();
+                self.lookahead = None;
+                err
+            });
+            tails.extend(try!(new_tails));
             if self.track.is_eos() {
                 if let Some(new_track) = self.play_list.next() {
                     self.track = try!(new_track);
