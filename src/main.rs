@@ -85,6 +85,29 @@ pub struct VorbisStream {
     packets: vorbis::PacketsIntoIter<File>,
 }
 
+impl VorbisStream {
+    fn new(decoder: vorbis::Decoder<File>) -> Result<VorbisStream, MyError> {
+        let mut packets = decoder.into_packets();
+        let first = if let Some(first) = packets.next() {
+            Some(try!(first)
+                     .data
+                     .iter()
+                     .map(|value| *value as f32 / i16::max_value() as f32)
+                     .collect())
+        } else {
+            None
+        };
+        let mut stream = VorbisStream {
+            offset: 0,
+            packet: vec![],
+            next_packet: first,
+            packets: packets,
+        };
+        try!(stream.load());
+        Ok(stream)
+    }
+}
+
 impl Stream for VorbisStream {
     fn read_add(&mut self, buf: &mut [f32]) {
         if buf.len() > self.max_read() {
@@ -165,6 +188,33 @@ impl Track {
             splice_point: None,
         }
     }
+
+    fn vorbis(path: &Path) -> Result<Track, MyError> {
+        let display = path.display();
+        let file = match File::open(&path) {
+            Err(why) => panic!("Couldn't open {}: {}", display, Error::description(&why)),
+            Ok(file) => file,
+        };
+
+        let decoder = try!(vorbis::Decoder::new(file));
+        let splice_point = try!(decoder.get_comment("SPLICEPOINT"));
+        let splice_point = splice_point.iter()
+                                       .fold(Ok(None), |acc, value| {
+                                           let res: Result<_, MyError> = acc.and_then(|acc| {
+                                               let value = try!(u64::from_str(value));
+                                               Ok(acc.map(|acc| std::cmp::min(acc, value))
+                                                     .or(Some(value)))
+                                           });
+                                           res
+                                       });
+        let splice_point = try!(splice_point);
+        let stream = try!(VorbisStream::new(decoder));
+        Ok(Track {
+            stream: Box::new(stream),
+            splice_point: splice_point,
+        })
+    }
+
     fn splice_point_as_usize(&self) -> Option<usize> {
         self.splice_point.and_then(|sp| {
             if sp <= usize::max_value() as u64 {
@@ -263,49 +313,6 @@ fn get_prog_name() -> &'static str {
         static ref PROG_NAME: String = aux();
     }
     PROG_NAME.as_str()
-}
-
-
-fn vorbis_track(path: &Path) -> Result<Track, MyError> {
-    let display = path.display();
-    let file = match File::open(&path) {
-        Err(why) => panic!("Couldn't open {}: {}", display, Error::description(&why)),   
-        Ok(file) => file,
-    };
-
-    let decoder = try!(vorbis::Decoder::new(file));
-    let splice_point = try!(decoder.get_comment("SPLICEPOINT"));
-    let splice_point = splice_point.iter()
-                                   .fold(Ok(None), |acc, value| {
-                                       let res: Result<_, MyError> = acc.and_then(|acc| {
-                                           let value = try!(u64::from_str(value));
-                                           Ok(acc.map(|acc| std::cmp::min(acc, value))
-                                                 .or(Some(value)))
-                                       });
-                                       res
-                                   });
-    let splice_point = try!(splice_point);
-    let mut packets = decoder.into_packets();
-    let first = if let Some(first) = packets.next() {
-        Some(try!(first)
-                 .data
-                 .iter()
-                 .map(|value| *value as f32 / i16::max_value() as f32)
-                 .collect())
-    } else {
-        None
-    };
-    let mut stream = VorbisStream {
-        offset: 0,
-        packet: vec![],
-        next_packet: first,
-        packets: packets,
-    };
-    try!(stream.load());
-    Ok(Track {
-        stream: Box::new(stream),
-        splice_point: splice_point,
-    })
 }
 
 struct Player {
@@ -573,7 +580,7 @@ fn main() {
         }
         let digraph: Digraph = digraph_builder.into();
         let tracks = digraph.into_random_walk(Box::new(rand::thread_rng()))
-                            .map(|p| vorbis_track(p.as_path()));
+                            .map(|p| Track::vorbis(p.as_path()));
         let stream = Player::new(Box::new(tracks)).unwrap();
 
         streams.push(Box::new(stream));
