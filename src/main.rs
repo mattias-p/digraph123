@@ -98,9 +98,11 @@ fn build_player(dir: &str) -> (Option<StreamConfig>, stream::Player) {
             if file_stream_config == dir_stream_config {
                 digraph_builder = digraph_builder.arrow(tail, head, path.clone());
             } else {
-                println!("{}: warning: incompatible stream config in file '{}'",
+                writeln!(&mut io::stderr(),
+                         "{}: warning: incompatible stream config in file '{}'",
                          get_prog_name(),
-                         path_display);
+                         path_display)
+                    .ok();
             }
         }
     }
@@ -132,9 +134,11 @@ fn main() {
         if dir_stream_config == channel_stream_config {
             streams.push(Box::new(player));
         } else {
-            println!("{}: warning: incompatible stream config in directory '{}'",
+            writeln!(&mut io::stderr(),
+                     "{}: warning: incompatible stream config in directory '{}'",
                      get_prog_name(),
-                     dir);
+                     dir)
+                .ok();
         }
     }
 
