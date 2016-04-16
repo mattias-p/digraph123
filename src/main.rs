@@ -21,6 +21,8 @@ use std::thread;
 use std::time;
 use stream::Stream;
 
+type StreamConfig = (u8, u32);
+
 macro_rules! print_error {
     ($err:expr, $fmt:tt $(, $arg:expr)*) => {{
         writeln!(&mut io::stderr(), concat!("{}: error: ", $fmt, ": {}"), get_prog_name() $(, $arg)*, $err.description()).ok();
@@ -72,11 +74,41 @@ fn path_to_section(path: &Path) -> Option<(String, String, Option<String>)> {
         })
 }
 
-fn path_to_stream_config(path: &Path) -> Result<(u8, u32), stream::Error> {
+fn path_to_stream_config(path: &Path) -> Result<StreamConfig, stream::Error> {
     let file = try!(fs::File::open(path));
     let mut decoder = try!(vorbis::Decoder::new(file));
     let packet = try!(decoder.packets().next().expect("first packet"));
     Ok((packet.channels as u8, packet.rate as u32))
+}
+
+fn build_player(dir: &str) -> (Option<StreamConfig>, stream::Player) {
+    let mut dir_stream_config = None;
+    let dir_files = insist!(std::fs::read_dir(dir), "reading directory '{}'", dir);
+    let mut digraph_builder = digraph::DigraphBuilder::new();
+    for entry in dir_files {
+        let entry = insist!(entry, "traversing directory '{}'", dir);
+        let path = entry.path();
+        let path_display = path.display();
+        if let Some((tail, head, _)) = path_to_section(&path) {
+            let file_stream_config = insist!(path_to_stream_config(&path),
+                                             "getting stream config of '{}'",
+                                             path_display);
+            let file_stream_config = Some(file_stream_config);
+            dir_stream_config = dir_stream_config.or(file_stream_config);
+            if file_stream_config == dir_stream_config {
+                digraph_builder = digraph_builder.arrow(tail, head, path.clone());
+            } else {
+                println!("{}: warning: incompatible stream config in file '{}'",
+                         get_prog_name(),
+                         path_display);
+            }
+        }
+    }
+    let digraph: digraph::Digraph = digraph_builder.into();
+    let tracks = digraph.into_random_walk(Box::new(rand::thread_rng()))
+                        .map(|p| stream::Track::vorbis(p.as_path()));
+    (dir_stream_config,
+     stream::Player::new(Box::new(tracks)).unwrap())
 }
 
 fn main() {
@@ -95,29 +127,15 @@ fn main() {
     let dirs: Vec<_> = matches.values_of("dir").map(|v| v.collect()).unwrap_or(vec![]);
     let mut streams: Vec<Box<stream::Stream>> = vec![];
     for dir in dirs {
-        let dir_files = insist!(std::fs::read_dir(dir), "reading directory '{}'", dir);
-        let mut digraph_builder = digraph::DigraphBuilder::new();
-        for entry in dir_files {
-            let entry = insist!(entry, "traversing directory '{}'", dir);
-            let path = entry.path();
-            let path_display = path.display();
-            if let Some((tail, head, _)) = path_to_section(&path) {
-                let file_stream_config = insist!(path_to_stream_config(&path),
-                                                 "getting stream config of '{}'",
-                                                 path_display);
-                let file_stream_config = Some(file_stream_config);
-                channel_stream_config = channel_stream_config.or(file_stream_config);
-                if file_stream_config == channel_stream_config {
-                    digraph_builder = digraph_builder.arrow(tail, head, path.clone());
-                }
-            }
+        let (dir_stream_config, player) = build_player(dir);
+        channel_stream_config = channel_stream_config.or(dir_stream_config);
+        if dir_stream_config == channel_stream_config {
+            streams.push(Box::new(player));
+        } else {
+            println!("{}: warning: incompatible stream config in directory '{}'",
+                     get_prog_name(),
+                     dir);
         }
-        let digraph: digraph::Digraph = digraph_builder.into();
-        let tracks = digraph.into_random_walk(Box::new(rand::thread_rng()))
-                            .map(|p| stream::Track::vorbis(p.as_path()));
-        let stream = stream::Player::new(Box::new(tracks)).unwrap();
-
-        streams.push(Box::new(stream));
     }
 
     let coefficient = 1.0 / streams.len() as f32;
