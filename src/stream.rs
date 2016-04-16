@@ -46,7 +46,7 @@ pub struct VorbisStream {
 }
 
 impl VorbisStream {
-    fn new(decoder: vorbis::Decoder<File>) -> Result<VorbisStream, MyError> {
+    pub fn new(decoder: vorbis::Decoder<File>) -> Result<VorbisStream, MyError> {
         let mut packets = decoder.into_packets();
         let first = if let Some(first) = packets.next() {
             Some(try!(first)
@@ -153,7 +153,7 @@ impl Track {
         })
     }
 
-    fn splice_point_as_usize(&self) -> Option<usize> {
+    pub fn splice_point_as_usize(&self) -> Option<usize> {
         self.splice_point.and_then(|sp| {
             if sp <= usize::max_value() as u64 {
                 Some(sp as usize)
