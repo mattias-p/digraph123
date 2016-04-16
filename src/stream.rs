@@ -351,31 +351,31 @@ impl Stream for Mixer {
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
-    ParseInt(num::ParseIntError),
+    Parse(num::ParseIntError),
     Vorbis(vorbis::VorbisError),
 }
 
 impl error::Error for Error {
     fn description(&self) -> &str {
         match self {
-            &Error::ParseInt(_) => "A string could not be parsed as an integer",
+            &Error::Io(ref err) => err.description(),
+            &Error::Parse(ref err) => err.description(),
             &Error::Vorbis(ref err) => err.description(),
-            &Error::Io(_) => "An I/O error ocurred",
         }
     }
 
     fn cause(&self) -> Option<&error::Error> {
         match self {
-            &Error::ParseInt(ref err) => Some(err as &std::error::Error),
-            &Error::Vorbis(ref err) => err.cause(),
-            &Error::Io(ref err) => Some(err as &std::error::Error),
+            &Error::Io(ref err) => Some(err as &error::Error),
+            &Error::Parse(ref err) => Some(err as &error::Error),
+            &Error::Vorbis(ref err) => Some(err as &error::Error),
         }
     }
 }
 
 impl From<num::ParseIntError> for Error {
     fn from(err: num::ParseIntError) -> Error {
-        Error::ParseInt(err)
+        Error::Parse(err)
     }
 }
 
@@ -392,7 +392,11 @@ impl From<io::Error> for Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        write!(fmt, "{}", error::Error::description(self))
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        match self {
+            &Error::Io(ref err) => write!(f, "IO error: {}", err),
+            &Error::Parse(ref err) => write!(f, "Parse error: {}", err),
+            &Error::Vorbis(ref err) => write!(f, "Vorbis error: {}", err),
+        }
     }
 }
