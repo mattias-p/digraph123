@@ -304,15 +304,15 @@ impl Stream for Mixer {
     }
 
     fn load(&mut self) -> Result<Vec<Box<Stream>>> {
-        let mut new_tails = vec![];
+        let mut tails = vec![];
         let mut empties = vec![];
         let mut errors = vec![];
 
         for (i, stream) in self.streams.iter_mut().enumerate() {
             if stream.max_read() == 0 {
                 match stream.load() {
-                    Ok(tails) => {
-                        new_tails.extend(tails);
+                    Ok(new_tails) => {
+                        tails.extend(new_tails);
                         if stream.is_eos() {
                             empties.push(i);
                         }
@@ -331,7 +331,7 @@ impl Stream for Mixer {
             self.streams.swap_remove(i);
         }
 
-        self.streams.extend(new_tails);
+        self.streams.extend(tails);
 
         if errors.is_empty() {
             Ok(vec![])
