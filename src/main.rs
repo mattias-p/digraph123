@@ -72,10 +72,10 @@ impl fmt::Display for MyError {
 }
 
 trait Stream {
-    fn max_read(&self) -> usize;
     fn is_eos(&self) -> bool;
-    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError>;
+    fn max_read(&self) -> usize;
     fn read_add(&mut self, buf: &mut [f32]);
+    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError>;
 }
 
 pub struct VorbisStream {
