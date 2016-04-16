@@ -74,7 +74,7 @@ impl fmt::Display for MyError {
 trait Stream {
     fn max_read(&self) -> usize;
     fn is_eos(&self) -> bool;
-    fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError>;
+    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError>;
     fn read_add(&mut self, buf: &mut [f32]) -> Result<(), MyError>;
 }
 
@@ -135,7 +135,7 @@ impl Stream for VorbisStream {
         self.next_packet.is_none() && self.max_read() == 0
     }
 
-    fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
+    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         Ok(vec![])
     }
 }
@@ -159,7 +159,7 @@ impl Stream for EmptyStream {
         true
     }
 
-    fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
+    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         Ok(vec![])
     }
 }
@@ -198,7 +198,7 @@ impl Stream for Track {
         self.stream.is_eos()
     }
 
-    fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
+    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         if self.max_read() == 0 {
             let tail = std::mem::replace(&mut self.stream, Box::new(EmptyStream));
             if tail.is_eos() {
@@ -328,7 +328,8 @@ impl Player {
             play_list: tracks,
         };
         if player.max_read() == 0 {
-            try!(player.get_tails());
+            let tails = try!(player.load());
+            assert_eq!(tails.len(), 0);
         }
         Ok(player)
     }
@@ -347,10 +348,10 @@ impl Stream for Player {
         self.track.read_add(buf)
     }
 
-    fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
+    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         let mut tails = vec![];
         while self.track.max_read() == 0 {
-            tails.extend(try!(self.track.get_tails()));
+            tails.extend(try!(self.track.load()));
             if let Some(new_track) = self.play_list.next() {
                 self.track = try!(new_track);
             } else {
@@ -376,7 +377,7 @@ impl Mixer {
 }
 
 impl Stream for Mixer {
-    fn get_tails(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
+    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         Ok(vec![])
     }
 
@@ -393,7 +394,7 @@ impl Stream for Mixer {
                 self.errors.push_back(err);
                 empties.push(i);
             } else if stream.max_read() == 0 {
-                match stream.get_tails() {
+                match stream.load() {
                     Ok(tails) => {
                         new_tails.extend(tails);
                         if stream.is_eos() {
