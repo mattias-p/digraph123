@@ -333,12 +333,10 @@ impl Stream for Mixer {
 
         self.streams.extend(new_tails);
 
-        if errors.len() == 1 {
-            Err(errors.pop().unwrap())
-        } else if errors.len() > 1 {
-            Err(Error::Multiple(errors))
-        } else {
+        if errors.is_empty() {
             Ok(vec![])
+        } else {
+            Err(From::from(errors))
         }
     }
 }
@@ -386,6 +384,16 @@ impl From<vorbis::VorbisError> for Error {
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Error {
         Error::Io(err)
+    }
+}
+
+impl From<Vec<Error>> for Error {
+    fn from(mut errors: Vec<Error>) -> Error {
+        if errors.len() > 1 {
+            Error::Multiple(errors)
+        } else {
+            errors.pop().expect("empty list")
+        }
     }
 }
 
