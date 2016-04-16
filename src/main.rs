@@ -172,7 +172,9 @@ fn main() {
     while !mixer.is_eos() {
         let max_read = mixer.max_read();
         if max_read == 0 {
-            mixer.load().map_err(|err| print_error!(err, "loading mixer")).ok();
+            if let Err(err) = mixer.load() {
+                print_error!(err, "loading mixer");
+            }
             continue;
         }
         assert_eq!(max_read % num_channels, 0);
