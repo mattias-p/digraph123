@@ -643,4 +643,8 @@ fn main() {
 
         channel.play();
     }
+
+    while channel.get_pending_samples() > 0 {
+        thread::sleep(time::Duration::from_millis(100));
+    }
 }
