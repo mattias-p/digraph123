@@ -1,9 +1,10 @@
-use std;
+use std::cmp;
 use std::collections;
 use std::error;
 use std::fmt;
 use std::fs;
 use std::io;
+use std::mem;
 use std::num;
 use std::path;
 use std::result;
@@ -97,8 +98,8 @@ impl Stream for VorbisStream {
 
     fn load(&mut self) -> Result<Vec<Box<Stream>>> {
         if self.offset == self.packet.len() {
-            if let Some(next_packet) = std::mem::replace(&mut self.next_packet, None) {
-                let mut recycled = std::mem::replace(&mut self.packet, next_packet);
+            if let Some(next_packet) = mem::replace(&mut self.next_packet, None) {
+                let mut recycled = mem::replace(&mut self.packet, next_packet);
                 let recycled_len = recycled.len();
                 self.offset = 0;
                 if let Some(vorbis_packet) = self.packets.next() {
@@ -147,7 +148,7 @@ impl Track {
                                        .fold(Ok(None), |acc, value| {
                                            let res: Result<_> = acc.and_then(|acc| {
                                                let value = try!(u64::from_str(value));
-                                               Ok(acc.map(|acc| std::cmp::min(acc, value))
+                                               Ok(acc.map(|acc| cmp::min(acc, value))
                                                      .or(Some(value)))
                                            });
                                            res
@@ -178,7 +179,7 @@ impl Stream for Track {
 
     fn max_read(&self) -> usize {
         if let Some(sp) = self.splice_point_as_usize() {
-            std::cmp::min(sp, self.stream.max_read())
+            cmp::min(sp, self.stream.max_read())
         } else {
             self.stream.max_read()
         }
@@ -195,7 +196,7 @@ impl Stream for Track {
         if self.max_read() == 0 {
             try!(self.stream.load());
             if self.splice_point == Some(0) {
-                let tail = std::mem::replace(&mut self.stream, Box::new(EmptyStream));
+                let tail = mem::replace(&mut self.stream, Box::new(EmptyStream));
                 Ok(vec![tail])
             } else {
                 Ok(vec![])
@@ -293,7 +294,7 @@ impl Stream for Mixer {
             self.streams
                 .iter()
                 .map(|stream| stream.max_read())
-                .fold(usize::max_value(), std::cmp::min)
+                .fold(usize::max_value(), cmp::min)
         }
     }
 

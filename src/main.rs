@@ -11,11 +11,12 @@ mod digraph;
 mod stream;
 
 use std::error::Error;
+use std::env;
 use std::fs;
 use std::io;
 use std::io::Write;
 use std::ops::DerefMut;
-use std::path::Path;
+use std::path;
 use std::process;
 use std::thread;
 use std::time;
@@ -47,8 +48,8 @@ macro_rules! insist {
 
 fn get_prog_name() -> &'static str {
     fn aux() -> String {
-        let prog_name = std::env::args().next().expect("std::env::args()");
-        Path::new(&prog_name)
+        let prog_name = env::args().next().expect("getting the program name");
+        path::Path::new(&prog_name)
             .file_name()
             .expect("file_name")
             .to_string_lossy()
@@ -60,7 +61,7 @@ fn get_prog_name() -> &'static str {
     PROG_NAME.as_str()
 }
 
-fn path_to_section(path: &Path) -> Option<(String, String, Option<String>)> {
+fn path_to_section(path: &path::Path) -> Option<(String, String, Option<String>)> {
     lazy_static! {
         static ref SECTION_RE: regex::Regex = regex::Regex::new(r"^([^-]+)-([^-]+)(?:-(.+))?.ogg$").unwrap();
     }
@@ -74,7 +75,7 @@ fn path_to_section(path: &Path) -> Option<(String, String, Option<String>)> {
         })
 }
 
-fn path_to_stream_config(path: &Path) -> Result<StreamConfig, stream::Error> {
+fn path_to_stream_config(path: &path::Path) -> Result<StreamConfig, stream::Error> {
     let file = try!(fs::File::open(path));
     let mut decoder = try!(vorbis::Decoder::new(file));
     let packet = try!(decoder.packets().next().expect("first packet"));
@@ -83,7 +84,7 @@ fn path_to_stream_config(path: &Path) -> Result<StreamConfig, stream::Error> {
 
 fn build_player(dir: &str) -> (Option<StreamConfig>, stream::Player) {
     let mut dir_stream_config = None;
-    let dir_files = insist!(std::fs::read_dir(dir), "reading directory '{}'", dir);
+    let dir_files = insist!(fs::read_dir(dir), "reading directory '{}'", dir);
     let mut digraph_builder = digraph::DigraphBuilder::new();
     for entry in dir_files {
         let entry = insist!(entry, "traversing directory '{}'", dir);

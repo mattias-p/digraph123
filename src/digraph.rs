@@ -1,3 +1,4 @@
+use rand;
 use rand::Rng;
 use std::collections;
 use std::path;
@@ -5,7 +6,7 @@ use std::path;
 pub struct Digraph(Vec<Vec<(usize, Vec<path::PathBuf>)>>);
 
 impl Digraph {
-    pub fn into_random_walk(self, rng: Box<Rng>) -> IntoRandomWalk {
+    pub fn into_random_walk(self, rng: Box<rand::Rng>) -> IntoRandomWalk {
         IntoRandomWalk {
             state: 0,
             digraph: self,
@@ -62,7 +63,7 @@ impl Into<Digraph> for DigraphBuilder {
 pub struct IntoRandomWalk {
     state: usize,
     digraph: Digraph,
-    rng: Box<Rng>,
+    rng: Box<rand::Rng>,
 }
 
 impl IntoRandomWalk {
