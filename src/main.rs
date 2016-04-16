@@ -22,60 +22,33 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::str::FromStr;
 
-#[derive(Debug)]
-enum MyError {
-    Io(io::Error),
-    ParseInt(ParseIntError),
-    Vorbis(vorbis::VorbisError),
-}
-
-impl Error for MyError {
-    fn description(&self) -> &str {
-        match self {
-            &MyError::ParseInt(_) => "A string could not be parsed as an integer",
-            &MyError::Vorbis(ref err) => err.description(),
-            &MyError::Io(_) => "An I/O error ocurred",
-        }
-    }
-
-    fn cause(&self) -> Option<&Error> {
-        match self {
-            &MyError::ParseInt(ref err) => Some(err as &std::error::Error),
-            &MyError::Vorbis(ref err) => err.cause(),
-            &MyError::Io(ref err) => Some(err as &std::error::Error),
-        }
-    }
-}
-
-impl From<ParseIntError> for MyError {
-    fn from(err: ParseIntError) -> MyError {
-        MyError::ParseInt(err)
-    }
-}
-
-impl From<vorbis::VorbisError> for MyError {
-    fn from(err: vorbis::VorbisError) -> MyError {
-        MyError::Vorbis(err)
-    }
-}
-
-impl From<io::Error> for MyError {
-    fn from(err: io::Error) -> MyError {
-        MyError::Io(err)
-    }
-}
-
-impl fmt::Display for MyError {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(fmt, "{}", Error::description(self))
-    }
-}
-
 trait Stream {
     fn is_eos(&self) -> bool;
     fn max_read(&self) -> usize;
     fn read_add(&mut self, buf: &mut [f32]);
     fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError>;
+}
+
+struct EmptyStream;
+
+impl Stream for EmptyStream {
+    fn is_eos(&self) -> bool {
+        true
+    }
+
+    fn max_read(&self) -> usize {
+        0
+    }
+
+    fn read_add(&mut self, buf: &mut [f32]) {
+        if buf.len() > self.max_read() {
+            panic!("out of bounds in EmptyStream");
+        }
+    }
+
+    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
+        Ok(vec![])
+    }
 }
 
 pub struct VorbisStream {
@@ -109,6 +82,14 @@ impl VorbisStream {
 }
 
 impl Stream for VorbisStream {
+    fn is_eos(&self) -> bool {
+        self.next_packet.is_none() && self.max_read() == 0
+    }
+
+    fn max_read(&self) -> usize {
+        self.packet.len() - self.offset
+    }
+
     fn read_add(&mut self, buf: &mut [f32]) {
         if buf.len() > self.max_read() {
             panic!("out of bounds in VorbisStream");
@@ -122,14 +103,6 @@ impl Stream for VorbisStream {
         for (out, value) in buf.iter_mut().zip(data) {
             *out += *value;
         }
-    }
-
-    fn max_read(&self) -> usize {
-        self.packet.len() - self.offset
-    }
-
-    fn is_eos(&self) -> bool {
-        self.next_packet.is_none() && self.max_read() == 0
     }
 
     fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
@@ -150,28 +123,6 @@ impl Stream for VorbisStream {
                 }
             }
         }
-        Ok(vec![])
-    }
-}
-
-struct EmptyStream;
-
-impl Stream for EmptyStream {
-    fn read_add(&mut self, buf: &mut [f32]) {
-        if buf.len() > self.max_read() {
-            panic!("out of bounds in EmptyStream");
-        }
-    }
-
-    fn max_read(&self) -> usize {
-        0
-    }
-
-    fn is_eos(&self) -> bool {
-        true
-    }
-
-    fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         Ok(vec![])
     }
 }
@@ -227,11 +178,8 @@ impl Track {
 }
 
 impl Stream for Track {
-    fn read_add(&mut self, buf: &mut [f32]) {
-        if buf.len() > self.max_read() {
-            panic!("out of bounds in Track");
-        }
-        self.stream.read_add(buf);
+    fn is_eos(&self) -> bool {
+        self.stream.is_eos()
     }
 
     fn max_read(&self) -> usize {
@@ -242,8 +190,11 @@ impl Stream for Track {
         }
     }
 
-    fn is_eos(&self) -> bool {
-        self.stream.is_eos()
+    fn read_add(&mut self, buf: &mut [f32]) {
+        if buf.len() > self.max_read() {
+            panic!("out of bounds in Track");
+        }
+        self.stream.read_add(buf);
     }
 
     fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
@@ -259,60 +210,6 @@ impl Stream for Track {
             Ok(vec![])
         }
     }
-}
-
-struct Digraph(Vec<Vec<(usize, Vec<PathBuf>)>>);
-
-impl Digraph {
-    fn into_random_walk(self, rng: Box<Rng>) -> IntoRandomWalk {
-        IntoRandomWalk {
-            state: 0,
-            digraph: self,
-            rng: rng,
-        }
-    }
-}
-
-struct IntoRandomWalk {
-    state: usize,
-    digraph: Digraph,
-    rng: Box<Rng>,
-}
-
-impl IntoRandomWalk {
-    fn next_once(&mut self) -> Option<&Path> {
-        let ref mut rng = self.rng;
-        let cells = self.digraph.0.get(self.state);
-        if let Some(&(new_state, ref arrows)) = cells.and_then(|cells| rng.choose(cells)) {
-            self.state = new_state;
-            rng.choose(arrows.as_slice()).map(|path| path.as_path())
-        } else {
-            None
-        }
-    }
-}
-
-impl<'a> Iterator for IntoRandomWalk {
-    type Item = PathBuf;
-    fn next(&mut self) -> Option<PathBuf> {
-        let path = self.next_once().map(|p| p.to_path_buf());
-        path.or_else(|| self.next_once().map(|p| p.to_path_buf()))
-    }
-}
-
-fn get_prog_name() -> &'static str {
-    fn aux() -> String {
-        let prog_name = std::env::args().next().expect("std::env::args()");
-        Path::new(&prog_name)
-            .file_name()
-            .expect("file_name")
-            .to_string_lossy()
-            .into_owned()
-    }
-    lazy_static! {
-        static ref PROG_NAME: String = aux();
-    }
-    PROG_NAME.as_str()
 }
 
 struct Player {
@@ -337,12 +234,12 @@ impl Player {
 }
 
 impl Stream for Player {
-    fn max_read(&self) -> usize {
-        self.track.max_read()
-    }
-
     fn is_eos(&self) -> bool {
         self.lookahead.is_none() && self.track.is_eos()
+    }
+
+    fn max_read(&self) -> usize {
+        self.track.max_read()
     }
 
     fn read_add(&mut self, buf: &mut [f32]) {
@@ -388,6 +285,34 @@ impl Mixer {
 }
 
 impl Stream for Mixer {
+    fn is_eos(&self) -> bool {
+        self.streams.len() == 0 ||
+        self.streams
+            .iter()
+            .all(|stream| stream.is_eos())
+    }
+
+    fn max_read(&self) -> usize {
+        if self.streams.len() == 0 {
+            0
+        } else {
+            self.streams
+                .iter()
+                .map(|stream| stream.max_read())
+                .fold(usize::max_value(), std::cmp::min)
+        }
+    }
+
+    fn read_add(&mut self, buf: &mut [f32]) {
+        if buf.len() > self.max_read() {
+            panic!("out of bounds in Mixer");
+        }
+
+        for stream in self.streams.iter_mut() {
+            stream.read_add(buf);
+        }
+    }
+
     fn load(&mut self) -> Result<Vec<Box<Stream>>, MyError> {
         if let Some(err) = self.errors.pop_front() {
             return Err(err);
@@ -427,77 +352,18 @@ impl Stream for Mixer {
             Ok(vec![])
         }
     }
-
-    fn read_add(&mut self, buf: &mut [f32]) {
-        if buf.len() > self.max_read() {
-            panic!("out of bounds in Mixer");
-        }
-
-        for stream in self.streams.iter_mut() {
-            stream.read_add(buf);
-        }
-    }
-
-    fn max_read(&self) -> usize {
-        if self.streams.len() == 0 {
-            0
-        } else {
-            self.streams
-                .iter()
-                .map(|stream| stream.max_read())
-                .fold(usize::max_value(), std::cmp::min)
-        }
-    }
-
-    fn is_eos(&self) -> bool {
-        self.streams.len() == 0 ||
-        self.streams
-            .iter()
-            .all(|stream| stream.is_eos())
-    }
 }
 
-macro_rules! print_error {
-    ($err:expr, $fmt:tt $(, $arg:expr)*) => {{
-        writeln!(&mut stderr(), concat!("{}: error: ", $fmt, ": {}"), get_prog_name() $(, $arg)*, $err.description()).ok();
-        let err = $err;
-        while let Some(err) = err.cause() {
-            writeln!(&mut stderr(), "\tcaused by: {}", err.description()).unwrap();
-        }
-    }}
-}
+struct Digraph(Vec<Vec<(usize, Vec<PathBuf>)>>);
 
-macro_rules! insist {
-    ($res:expr, $fmt:tt $(, $arg:expr)*) => {
-        match $res {
-            Ok(value) => value,
-            Err(ref err) => {
-                print_error!(err, $fmt $(, $arg)*);
-                process::exit(1);
-            }
+impl Digraph {
+    fn into_random_walk(self, rng: Box<Rng>) -> IntoRandomWalk {
+        IntoRandomWalk {
+            state: 0,
+            digraph: self,
+            rng: rng,
         }
-    }   
-}
-
-fn path_to_section(path: &Path) -> Option<(String, String, Option<String>)> {
-    lazy_static! {
-        static ref SECTION_RE: Regex = Regex::new(r"^([^-]+)-([^-]+)(?:-(.+))?.ogg$").unwrap();
     }
-    path.file_name()
-        .and_then(|os_str| os_str.to_str())
-        .and_then(|file_name| SECTION_RE.captures(file_name))
-        .map(|cap| {
-            (cap[1].to_lowercase().to_string(),
-             cap[2].to_lowercase().to_string(),
-             cap.at(3).map(|s| s.to_string()))
-        })
-}
-
-fn path_to_stream_config(path: &Path) -> Result<(u8, u32), MyError> {
-    let file = try!(File::open(path));
-    let mut decoder = try!(vorbis::Decoder::new(file));
-    let packet = try!(decoder.packets().next().expect("first packet"));
-    Ok((packet.channels as u8, packet.rate as u32))
 }
 
 struct DigraphBuilder {
@@ -543,6 +409,141 @@ impl Into<Digraph> for DigraphBuilder {
         }
         Digraph(digraph)
     }
+}
+
+struct IntoRandomWalk {
+    state: usize,
+    digraph: Digraph,
+    rng: Box<Rng>,
+}
+
+impl IntoRandomWalk {
+    fn next_once(&mut self) -> Option<&Path> {
+        let ref mut rng = self.rng;
+        let cells = self.digraph.0.get(self.state);
+        if let Some(&(new_state, ref arrows)) = cells.and_then(|cells| rng.choose(cells)) {
+            self.state = new_state;
+            rng.choose(arrows.as_slice()).map(|path| path.as_path())
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> Iterator for IntoRandomWalk {
+    type Item = PathBuf;
+    fn next(&mut self) -> Option<PathBuf> {
+        let path = self.next_once().map(|p| p.to_path_buf());
+        path.or_else(|| self.next_once().map(|p| p.to_path_buf()))
+    }
+}
+
+
+#[derive(Debug)]
+enum MyError {
+    Io(io::Error),
+    ParseInt(ParseIntError),
+    Vorbis(vorbis::VorbisError),
+}
+
+impl Error for MyError {
+    fn description(&self) -> &str {
+        match self {
+            &MyError::ParseInt(_) => "A string could not be parsed as an integer",
+            &MyError::Vorbis(ref err) => err.description(),
+            &MyError::Io(_) => "An I/O error ocurred",
+        }
+    }
+
+    fn cause(&self) -> Option<&Error> {
+        match self {
+            &MyError::ParseInt(ref err) => Some(err as &std::error::Error),
+            &MyError::Vorbis(ref err) => err.cause(),
+            &MyError::Io(ref err) => Some(err as &std::error::Error),
+        }
+    }
+}
+
+impl From<ParseIntError> for MyError {
+    fn from(err: ParseIntError) -> MyError {
+        MyError::ParseInt(err)
+    }
+}
+
+impl From<vorbis::VorbisError> for MyError {
+    fn from(err: vorbis::VorbisError) -> MyError {
+        MyError::Vorbis(err)
+    }
+}
+
+impl From<io::Error> for MyError {
+    fn from(err: io::Error) -> MyError {
+        MyError::Io(err)
+    }
+}
+
+impl fmt::Display for MyError {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(fmt, "{}", Error::description(self))
+    }
+}
+
+macro_rules! print_error {
+    ($err:expr, $fmt:tt $(, $arg:expr)*) => {{
+        writeln!(&mut stderr(), concat!("{}: error: ", $fmt, ": {}"), get_prog_name() $(, $arg)*, $err.description()).ok();
+        let err = $err;
+        while let Some(err) = err.cause() {
+            writeln!(&mut stderr(), "\tcaused by: {}", err.description()).unwrap();
+        }
+    }}
+}
+
+macro_rules! insist {
+    ($res:expr, $fmt:tt $(, $arg:expr)*) => {
+        match $res {
+            Ok(value) => value,
+            Err(ref err) => {
+                print_error!(err, $fmt $(, $arg)*);
+                process::exit(1);
+            }
+        }
+    }   
+}
+
+fn get_prog_name() -> &'static str {
+    fn aux() -> String {
+        let prog_name = std::env::args().next().expect("std::env::args()");
+        Path::new(&prog_name)
+            .file_name()
+            .expect("file_name")
+            .to_string_lossy()
+            .into_owned()
+    }
+    lazy_static! {
+        static ref PROG_NAME: String = aux();
+    }
+    PROG_NAME.as_str()
+}
+
+fn path_to_section(path: &Path) -> Option<(String, String, Option<String>)> {
+    lazy_static! {
+        static ref SECTION_RE: Regex = Regex::new(r"^([^-]+)-([^-]+)(?:-(.+))?.ogg$").unwrap();
+    }
+    path.file_name()
+        .and_then(|os_str| os_str.to_str())
+        .and_then(|file_name| SECTION_RE.captures(file_name))
+        .map(|cap| {
+            (cap[1].to_lowercase().to_string(),
+             cap[2].to_lowercase().to_string(),
+             cap.at(3).map(|s| s.to_string()))
+        })
+}
+
+fn path_to_stream_config(path: &Path) -> Result<(u8, u32), MyError> {
+    let file = try!(File::open(path));
+    let mut decoder = try!(vorbis::Decoder::new(file));
+    let packet = try!(decoder.packets().next().expect("first packet"));
+    Ok((packet.channels as u8, packet.rate as u32))
 }
 
 fn main() {
