@@ -6,14 +6,17 @@ use std::fs;
 use std::io;
 use std::num;
 use std::path;
+use std::result;
 use std::str::FromStr;
 use vorbis;
+
+pub type Result<T> = result::Result<T, Error>;
 
 pub trait Stream {
     fn is_eos(&self) -> bool;
     fn max_read(&self) -> usize;
     fn read_add(&mut self, buf: &mut [f32]);
-    fn load(&mut self) -> Result<Vec<Box<Stream>>, Error>;
+    fn load(&mut self) -> Result<Vec<Box<Stream>>>;
 }
 
 pub struct EmptyStream;
@@ -33,7 +36,7 @@ impl Stream for EmptyStream {
         }
     }
 
-    fn load(&mut self) -> Result<Vec<Box<Stream>>, Error> {
+    fn load(&mut self) -> Result<Vec<Box<Stream>>> {
         Ok(vec![])
     }
 }
@@ -46,7 +49,7 @@ pub struct VorbisStream {
 }
 
 impl VorbisStream {
-    pub fn new(decoder: vorbis::Decoder<fs::File>) -> Result<VorbisStream, Error> {
+    pub fn new(decoder: vorbis::Decoder<fs::File>) -> Result<VorbisStream> {
         let mut packets = decoder.into_packets();
         let first = if let Some(first) = packets.next() {
             Some(try!(first)
@@ -92,7 +95,7 @@ impl Stream for VorbisStream {
         }
     }
 
-    fn load(&mut self) -> Result<Vec<Box<Stream>>, Error> {
+    fn load(&mut self) -> Result<Vec<Box<Stream>>> {
         if self.offset == self.packet.len() {
             if let Some(next_packet) = std::mem::replace(&mut self.next_packet, None) {
                 let mut recycled = std::mem::replace(&mut self.packet, next_packet);
@@ -127,7 +130,7 @@ impl Track {
         }
     }
 
-    pub fn vorbis(path: &path::Path) -> Result<Track, Error> {
+    pub fn vorbis(path: &path::Path) -> Result<Track> {
         let display = path.display();
         let file = match fs::File::open(&path) {
             Err(why) => {
@@ -142,7 +145,7 @@ impl Track {
         let splice_point = try!(decoder.get_comment("SPLICEPOINT"));
         let splice_point = splice_point.iter()
                                        .fold(Ok(None), |acc, value| {
-                                           let res: Result<_, Error> = acc.and_then(|acc| {
+                                           let res: Result<_> = acc.and_then(|acc| {
                                                let value = try!(u64::from_str(value));
                                                Ok(acc.map(|acc| std::cmp::min(acc, value))
                                                      .or(Some(value)))
@@ -188,7 +191,7 @@ impl Stream for Track {
         self.stream.read_add(buf);
     }
 
-    fn load(&mut self) -> Result<Vec<Box<Stream>>, Error> {
+    fn load(&mut self) -> Result<Vec<Box<Stream>>> {
         if self.max_read() == 0 {
             try!(self.stream.load());
             if self.splice_point == Some(0) {
@@ -206,11 +209,11 @@ impl Stream for Track {
 pub struct Player {
     track: Track,
     lookahead: Option<Track>,
-    play_list: Box<Iterator<Item = Result<Track, Error>>>,
+    play_list: Box<Iterator<Item = Result<Track>>>,
 }
 
 impl Player {
-    pub fn new(tracks: Box<Iterator<Item = Result<Track, Error>>>) -> Result<Player, Error> {
+    pub fn new(tracks: Box<Iterator<Item = Result<Track>>>) -> Result<Player> {
         let mut player = Player {
             track: Track::empty(),
             lookahead: Some(Track::empty()),
@@ -240,7 +243,7 @@ impl Stream for Player {
         self.track.read_add(buf);
     }
 
-    fn load(&mut self) -> Result<Vec<Box<Stream>>, Error> {
+    fn load(&mut self) -> Result<Vec<Box<Stream>>> {
         let mut tails = vec![];
         while self.track.max_read() == 0 {
             let new_tails = self.track.load().map_err(|err| {
@@ -304,7 +307,7 @@ impl Stream for Mixer {
         }
     }
 
-    fn load(&mut self) -> Result<Vec<Box<Stream>>, Error> {
+    fn load(&mut self) -> Result<Vec<Box<Stream>>> {
         if let Some(err) = self.errors.pop_front() {
             return Err(err);
         }
@@ -389,7 +392,7 @@ impl From<io::Error> for Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         write!(fmt, "{}", error::Error::description(self))
     }
 }
