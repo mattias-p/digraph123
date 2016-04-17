@@ -346,24 +346,28 @@ pub enum Error {
     Vorbis(vorbis::VorbisError),
     Multiple(Vec<Error>),
     AudioFormat,
+    File(path::PathBuf, Box<Error>),
 }
 
 impl error::Error for Error {
     fn description(&self) -> &str {
         match self {
-            &Error::Io(_) => "an I/O error occurred",
-            &Error::Parse(_) => "a parse error occurred",
-            &Error::Vorbis(_) => "a error occurred in the Vorbis decoder",
-            &Error::Multiple(_) => "multiple errors occurred",
+            &Error::Io(_) => "an I/O error",
+            &Error::Parse(_) => "a parse error",
+            &Error::Vorbis(_) => "a Vorbis decoder error",
+            &Error::Multiple(_) => "multiple errors",
             &Error::AudioFormat => "inconsistent audio formats",
+            &Error::File(_, _) => "an error occurred in a file",
         }
     }
 
     fn cause(&self) -> Option<&error::Error> {
+        use std::ops::Deref;
         match self {
             &Error::Io(ref err) => Some(err as &error::Error),
             &Error::Parse(ref err) => Some(err as &error::Error),
             &Error::Vorbis(ref err) => Some(err as &error::Error),
+            &Error::File(_, ref err) => Some(err.deref() as &error::Error),
             _ => None,
         }
     }
@@ -409,6 +413,7 @@ impl fmt::Display for Error {
                 write!(f, "{}:\n * {}", self.description(), parts.join("\n * "))
             }
             &::stream::Error::AudioFormat => write!(f, "{}", self.description()),
+            &::stream::Error::File(ref path, _) => write!(f, "error in file '{}'", path.display()),
         }
     }
 }

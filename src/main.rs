@@ -27,7 +27,7 @@ type VoiceConfig = (u8, u32);
 macro_rules! print_error {
     ($err:expr, $fmt:tt $(, $arg:expr)*) => {{
         let mut err = $err as &std::error::Error;
-        writeln!(&mut io::stderr(), concat!("{}: error: ", $fmt, ": {}"), get_prog_name() $(, $arg)*, err.description()).ok();
+        writeln!(&mut io::stderr(), concat!("{}: error: ", $fmt, "\n\tcaused by: {}"), get_prog_name() $(, $arg)*, err).ok();
         while let Some(cause) = err.cause() {
             writeln!(&mut io::stderr(), "\tcaused by: {}", cause.description()).ok();
             err = cause;
@@ -75,16 +75,22 @@ impl PlayerBuilder {
         }
     }
 
-    fn path(&mut self, path: &path::Path) -> stream::Result<&mut Self> {
+    fn path(&mut self, path: path::PathBuf) -> stream::Result<&mut Self> {
         if let Some((tail, head, _)) = path_to_section(&path) {
-            let file_voice_config = try!(path_to_voice_config(&path));
-            self.voice_config = self.voice_config.or(Some(file_voice_config));
-            if Some(file_voice_config) != self.voice_config {
-                return Err(stream::Error::AudioFormat);
+            match path_to_voice_config(&path) {
+                Ok(file_voice_config) => {
+                    self.voice_config = self.voice_config.or(Some(file_voice_config));
+                    if Some(file_voice_config) != self.voice_config {
+                        return Err(stream::Error::AudioFormat);
+                    }
+                    self.digraph_builder.arrow(tail, head, path);
+                    Ok(self)
+                }
+                Err(err) => Err(stream::Error::File(path, Box::new(err))),
             }
-            self.digraph_builder.arrow(tail, head, path.to_path_buf());
+        } else {
+            Ok(self)
         }
-        Ok(self)
     }
 
     fn get_voice_config(&self) -> Option<VoiceConfig> {
@@ -128,7 +134,7 @@ fn build_mixer(dirs: &[&str]) -> stream::Result<(VoiceConfig, stream::Mixer, f32
         let mut player_builder = PlayerBuilder::new();
         for entry in try!(fs::read_dir(dir)) {
             let entry = try!(entry);
-            try!(player_builder.path(&entry.path()));
+            try!(player_builder.path(entry.path()));
         }
         let dir_voice_config = player_builder.get_voice_config();
         let player = try!(player_builder.build());
@@ -156,7 +162,7 @@ fn create_voice(voice_config: VoiceConfig, endpoint: cpal::Endpoint) -> cpal::Vo
     let format = {
         let formats = endpoint.get_supported_formats_list();
         let formats = insist!(formats,
-                              "while getting list of formats supported by default endpoint");
+                              "failed to get list of formats supported by default endpoint");
 
         formats.filter(|f| f.samples_rate.0 as u32 == voice_config.1)
                .filter(|f| f.channels.len() == voice_config.0 as usize)
@@ -188,7 +194,7 @@ fn main() {
 
     let dirs = matches.values_of("dir").map(|v| v.collect()).unwrap_or(vec![]);
     let (voice_config, mut mixer, coefficient) = insist!(build_mixer(dirs.as_slice()),
-                                                         "while building mixer");
+                                                         "failed to construct mixer");
     let num_channels = voice_config.0 as usize;
 
     let endpoint = cpal::get_default_endpoint().expect("default endpoing");
