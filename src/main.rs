@@ -22,7 +22,7 @@ use std::thread;
 use std::time;
 use stream::Stream;
 
-type StreamConfig = (u8, u32);
+type VoiceConfig = (u8, u32);
 
 macro_rules! print_error {
     ($err:expr, $fmt:tt $(, $arg:expr)*) => {{
@@ -75,15 +75,15 @@ fn path_to_section(path: &path::Path) -> Option<(String, String, Option<String>)
         })
 }
 
-fn path_to_stream_config(path: &path::Path) -> Result<StreamConfig, stream::Error> {
+fn path_to_voice_config(path: &path::Path) -> Result<VoiceConfig, stream::Error> {
     let file = try!(fs::File::open(path));
     let mut decoder = try!(vorbis::Decoder::new(file));
     let packet = try!(decoder.packets().next().expect("first packet"));
     Ok((packet.channels as u8, packet.rate as u32))
 }
 
-fn build_player(dir: &str) -> (Option<StreamConfig>, stream::Player) {
-    let mut dir_stream_config = None;
+fn build_player(dir: &str) -> (Option<VoiceConfig>, stream::Player) {
+    let mut voice_config = None;
     let dir_files = insist!(fs::read_dir(dir), "reading directory '{}'", dir);
     let mut digraph_builder = digraph::DigraphBuilder::new();
     for entry in dir_files {
@@ -91,16 +91,16 @@ fn build_player(dir: &str) -> (Option<StreamConfig>, stream::Player) {
         let path = entry.path();
         let path_display = path.display();
         if let Some((tail, head, _)) = path_to_section(&path) {
-            let file_stream_config = insist!(path_to_stream_config(&path),
-                                             "getting stream config of '{}'",
-                                             path_display);
-            let file_stream_config = Some(file_stream_config);
-            dir_stream_config = dir_stream_config.or(file_stream_config);
-            if file_stream_config == dir_stream_config {
+            let file_voice_config = insist!(path_to_voice_config(&path),
+                                            "getting voice config of '{}'",
+                                            path_display);
+            let file_voice_config = Some(file_voice_config);
+            voice_config = voice_config.or(file_voice_config);
+            if file_voice_config == voice_config {
                 digraph_builder = digraph_builder.arrow(tail, head, path.clone());
             } else {
                 writeln!(&mut io::stderr(),
-                         "{}: warning: incompatible stream config in file '{}'",
+                         "{}: warning: incompatible voice config in file '{}'",
                          get_prog_name(),
                          path_display)
                     .ok();
@@ -110,22 +110,21 @@ fn build_player(dir: &str) -> (Option<StreamConfig>, stream::Player) {
     let digraph: digraph::Digraph = digraph_builder.into();
     let tracks = digraph.into_random_walk(Box::new(rand::thread_rng()))
                         .map(|p| stream::Track::vorbis(p.as_path()));
-    (dir_stream_config,
-     stream::Player::new(Box::new(tracks)).unwrap())
+    (voice_config, stream::Player::new(Box::new(tracks)).unwrap())
 }
 
-fn build_mixer(dirs: &[&str]) -> (StreamConfig, stream::Mixer, f32) {
+fn build_mixer(dirs: &[&str]) -> (VoiceConfig, stream::Mixer, f32) {
     assert!(dirs.len() > 0);
-    let mut stream_config = None;
+    let mut voice_config = None;
     let mut streams: Vec<Box<stream::Stream>> = vec![];
     for dir in dirs {
-        let (dir_stream_config, player) = build_player(dir);
-        stream_config = stream_config.or(dir_stream_config);
-        if dir_stream_config == stream_config {
+        let (dir_voice_config, player) = build_player(dir);
+        voice_config = voice_config.or(dir_voice_config);
+        if dir_voice_config == voice_config {
             streams.push(Box::new(player));
         } else {
             writeln!(&mut io::stderr(),
-                     "{}: warning: incompatible stream config in directory '{}'",
+                     "{}: warning: incompatible voice config in directory '{}'",
                      get_prog_name(),
                      dir)
                 .ok();
@@ -133,29 +132,30 @@ fn build_mixer(dirs: &[&str]) -> (StreamConfig, stream::Mixer, f32) {
     }
 
     let coefficient = 1.0 / streams.len() as f32;
-    (stream_config.unwrap(),
+
+    (voice_config.unwrap(),
      stream::Mixer::new(streams),
      coefficient)
 }
 
-fn get_channel(stream_config: StreamConfig, endpoint: cpal::Endpoint) -> cpal::Voice {
+fn create_voice(voice_config: VoiceConfig, endpoint: cpal::Endpoint) -> cpal::Voice {
     let format = {
         let formats = endpoint.get_supported_formats_list();
         let formats = insist!(formats,
                               "getting list of formats supported by default endpoint");
 
-        formats.filter(|f| f.samples_rate.0 as u32 == stream_config.1)
-               .filter(|f| f.channels.len() == stream_config.0 as usize)
+        formats.filter(|f| f.samples_rate.0 as u32 == voice_config.1)
+               .filter(|f| f.channels.len() == voice_config.0 as usize)
                .filter(|f| f.data_type == cpal::SampleFormat::F32)
                .next()
     };
     let format = if let Some(format) = format {
         format
     } else {
-        panic!("stream format not supported");
+        panic!("voice format not supported");
     };
 
-    cpal::Voice::new(&endpoint, &format).expect("Failed to create a channel")
+    cpal::Voice::new(&endpoint, &format).expect("Failed to create a voice")
 }
 
 fn main() {
@@ -172,25 +172,25 @@ fn main() {
                                .multiple(true))
                       .get_matches();
 
-    let dirs: Vec<_> = matches.values_of("dir").map(|v| v.collect()).unwrap_or(vec![]);
+    let dirs = matches.values_of("dir").map(|v| v.collect()).unwrap_or(vec![]);
+    let (voice_config, mut mixer, coefficient) = build_mixer(dirs.as_slice());
+    let num_channels = voice_config.0 as usize;
 
-    let (stream_config, mut mixer, coefficient) = build_mixer(dirs.as_slice());
-
-    let mut channel = get_channel(stream_config,
-                                  cpal::get_default_endpoint().expect("default endpoing"));
-
-    let num_channels = stream_config.0 as usize;
+    let endpoint = cpal::get_default_endpoint().expect("default endpoing");
+    let mut voice = create_voice(voice_config, endpoint);
 
     while !mixer.is_eos() {
         let max_read = mixer.max_read();
+        assert_eq!(max_read % num_channels, 0);
+
         if max_read == 0 {
             if let Err(err) = mixer.load() {
                 print_error!(err, "loading mixer");
             }
             continue;
         }
-        assert_eq!(max_read % num_channels, 0);
-        match channel.append_data(max_read) {
+
+        match voice.append_data(max_read) {
             cpal::UnknownTypeBuffer::F32(mut buffer) => {
                 for out in buffer.deref_mut().iter_mut() {
                     *out = 0.0;
@@ -212,10 +212,10 @@ fn main() {
             }
         };
 
-        channel.play();
+        voice.play();
     }
 
-    while channel.get_pending_samples() > 0 {
+    while voice.get_pending_samples() > 0 {
         thread::sleep(time::Duration::from_millis(100));
     }
 }
