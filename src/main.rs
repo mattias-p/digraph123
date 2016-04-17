@@ -134,7 +134,9 @@ fn build_mixer(dirs: &[&str]) -> stream::Result<(VoiceConfig, stream::Mixer, f32
         let mut player_builder = PlayerBuilder::new();
         for entry in try!(fs::read_dir(dir)) {
             let entry = try!(entry);
-            try!(player_builder.path(entry.path()));
+            if let Err(err) = player_builder.path(entry.path()) {
+                print_error!(&err, "ignoring file");
+            }
         }
         let dir_voice_config = player_builder.get_voice_config();
         let player = try!(player_builder.build());
