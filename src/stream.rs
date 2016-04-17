@@ -347,6 +347,7 @@ pub enum Error {
     Multiple(Vec<Error>),
     AudioFormat,
     File(path::PathBuf, Box<Error>),
+    Dir(String, Box<Error>),
 }
 
 impl error::Error for Error {
@@ -358,6 +359,7 @@ impl error::Error for Error {
             &Error::Multiple(_) => "multiple errors",
             &Error::AudioFormat => "inconsistent audio formats",
             &Error::File(_, _) => "an error occurred in a file",
+            &Error::Dir(_, _) => "an error occurred in a directory",
         }
     }
 
@@ -368,6 +370,7 @@ impl error::Error for Error {
             &Error::Parse(ref err) => Some(err as &error::Error),
             &Error::Vorbis(ref err) => Some(err as &error::Error),
             &Error::File(_, ref err) => Some(err.deref() as &error::Error),
+            &Error::Dir(_, ref err) => Some(err.deref() as &error::Error),
             _ => None,
         }
     }
@@ -405,15 +408,16 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         use std::error::Error;
         match self {
-            &::stream::Error::Io(ref err) => write!(f, "{}: {}", self.description(), err),
-            &::stream::Error::Parse(ref err) => write!(f, "{}: {}", self.description(), err),
-            &::stream::Error::Vorbis(ref err) => write!(f, "{}: {}", self.description(), err),
+            &::stream::Error::Io(_) => write!(f, "{}", self.description()),
+            &::stream::Error::Parse(_) => write!(f, "{}", self.description()),
+            &::stream::Error::Vorbis(_) => write!(f, "{}", self.description()),
             &::stream::Error::Multiple(ref err) => {
                 let parts: Vec<_> = err.iter().map(::stream::Error::to_string).collect();
                 write!(f, "{}:\n * {}", self.description(), parts.join("\n * "))
             }
             &::stream::Error::AudioFormat => write!(f, "{}", self.description()),
             &::stream::Error::File(ref path, _) => write!(f, "error in file '{}'", path.display()),
+            &::stream::Error::Dir(ref path, _) => write!(f, "error in directory '{}'", path),
         }
     }
 }

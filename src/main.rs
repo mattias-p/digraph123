@@ -27,9 +27,9 @@ type VoiceConfig = (u8, u32);
 macro_rules! print_error {
     ($err:expr, $fmt:tt $(, $arg:expr)*) => {{
         let mut err = $err as &std::error::Error;
-        writeln!(&mut io::stderr(), concat!("{}: error: ", $fmt, "\n\tcaused by: {}"), get_prog_name() $(, $arg)*, err).ok();
+        writeln!(&mut io::stderr(), concat!("{}: ", $fmt, "\n\tcaused by: {}"), get_prog_name() $(, $arg)*, err).ok();
         while let Some(cause) = err.cause() {
-            writeln!(&mut io::stderr(), "\tcaused by: {}", cause.description()).ok();
+            writeln!(&mut io::stderr(), "\tcaused by: {}", cause).ok();
             err = cause;
         }
     }}
@@ -75,9 +75,30 @@ impl PlayerBuilder {
         }
     }
 
+    fn path_to_voice_config(path: &path::Path) -> Result<VoiceConfig, stream::Error> {
+        let file = try!(fs::File::open(path));
+        let mut decoder = try!(vorbis::Decoder::new(file));
+        let packet = try!(decoder.packets().next().expect("first packet"));
+        Ok((packet.channels as u8, packet.rate as u32))
+    }
+
+    fn path_to_section(path: &path::Path) -> Option<(String, String, Option<String>)> {
+        lazy_static! {
+        static ref SECTION_RE: regex::Regex = regex::Regex::new(r"^([^-]+)-([^-]+)(?:-(.+))?.ogg$").unwrap();
+    }
+        path.file_name()
+            .and_then(|os_str| os_str.to_str())
+            .and_then(|file_name| SECTION_RE.captures(file_name))
+            .map(|cap| {
+                (cap[1].to_lowercase().to_string(),
+                 cap[2].to_lowercase().to_string(),
+                 cap.at(3).map(|s| s.to_string()))
+            })
+    }
+
     fn path(&mut self, path: path::PathBuf) -> stream::Result<&mut Self> {
-        if let Some((tail, head, _)) = path_to_section(&path) {
-            match path_to_voice_config(&path) {
+        if let Some((tail, head, _)) = Self::path_to_section(&path) {
+            match Self::path_to_voice_config(&path) {
                 Ok(file_voice_config) => {
                     self.voice_config = self.voice_config.or(Some(file_voice_config));
                     if Some(file_voice_config) != self.voice_config {
@@ -96,6 +117,7 @@ impl PlayerBuilder {
     fn get_voice_config(&self) -> Option<VoiceConfig> {
         self.voice_config
     }
+
     fn build(self) -> stream::Result<stream::Player> {
         let digraph: digraph::Digraph = self.digraph_builder.into();
         let tracks = digraph.into_random_walk(Box::new(rand::thread_rng()))
@@ -104,60 +126,61 @@ impl PlayerBuilder {
     }
 }
 
-fn path_to_section(path: &path::Path) -> Option<(String, String, Option<String>)> {
-    lazy_static! {
-        static ref SECTION_RE: regex::Regex = regex::Regex::new(r"^([^-]+)-([^-]+)(?:-(.+))?.ogg$").unwrap();
+struct MixerBuilder {
+    streams: Vec<Box<stream::Stream>>,
+    voice_config: Option<VoiceConfig>,
+}
+
+impl MixerBuilder {
+    fn new() -> MixerBuilder {
+        MixerBuilder {
+            streams: vec![],
+            voice_config: None,
+        }
     }
-    path.file_name()
-        .and_then(|os_str| os_str.to_str())
-        .and_then(|file_name| SECTION_RE.captures(file_name))
-        .map(|cap| {
-            (cap[1].to_lowercase().to_string(),
-             cap[2].to_lowercase().to_string(),
-             cap.at(3).map(|s| s.to_string()))
-        })
-}
 
-fn path_to_voice_config(path: &path::Path) -> Result<VoiceConfig, stream::Error> {
-    let file = try!(fs::File::open(path));
-    let mut decoder = try!(vorbis::Decoder::new(file));
-    let packet = try!(decoder.packets().next().expect("first packet"));
-    Ok((packet.channels as u8, packet.rate as u32))
-}
+    fn dir(&mut self, dir: &str) -> stream::Result<&mut Self> {
+        fn inner(this: &mut MixerBuilder, dir: &str) -> stream::Result<()> {
+            let mut player_builder = PlayerBuilder::new();
+            for entry in try!(fs::read_dir(dir)) {
+                let entry = try!(entry);
+                if let Err(err) = player_builder.path(entry.path()) {
+                    print_error!(&err, "warning: ignoring file due to error");
+                }
+            }
+            let dir_voice_config = player_builder.get_voice_config();
+            let player = try!(player_builder.build());
 
-
-fn build_mixer(dirs: &[&str]) -> stream::Result<(VoiceConfig, stream::Mixer, f32)> {
-    assert!(dirs.len() > 0);
-    let mut voice_config = None;
-    let mut streams: Vec<Box<stream::Stream>> = vec![];
-    for dir in dirs {
-        let mut player_builder = PlayerBuilder::new();
-        for entry in try!(fs::read_dir(dir)) {
-            let entry = try!(entry);
-            if let Err(err) = player_builder.path(entry.path()) {
-                print_error!(&err, "ignoring file");
+            this.voice_config = this.voice_config.or(dir_voice_config);
+            if dir_voice_config == this.voice_config {
+                this.streams.push(Box::new(player));
+                Ok(())
+            } else {
+                Err(stream::Error::AudioFormat)
             }
         }
-        let dir_voice_config = player_builder.get_voice_config();
-        let player = try!(player_builder.build());
-
-        voice_config = voice_config.or(dir_voice_config);
-        if dir_voice_config == voice_config {
-            streams.push(Box::new(player));
-        } else {
-            writeln!(&mut io::stderr(),
-                     "{}: warning: incompatible voice config in directory '{}'",
-                     get_prog_name(),
-                     dir)
-                .ok();
-        }
+        inner(self, dir)
+            .map_err(|err| stream::Error::Dir(dir.to_string(), Box::new(err)))
+            .and(Ok(self))
     }
 
-    let coefficient = 1.0 / streams.len() as f32;
+    fn build(self) -> stream::Result<(VoiceConfig, f32, stream::Mixer)> {
+        if let Some(voice_config) = self.voice_config {
+            let coefficient = 1.0 / self.streams.len() as f32;
+            Ok((voice_config, coefficient, stream::Mixer::new(self.streams)))
+        } else {
+            Err(stream::Error::AudioFormat)
+        }
+    }
+}
 
-    Ok((voice_config.unwrap(),
-        stream::Mixer::new(streams),
-        coefficient))
+fn build_mixer(dirs: &[&str]) -> stream::Result<(VoiceConfig, f32, stream::Mixer)> {
+    assert!(dirs.len() > 0);
+    let mut mixer_builder = MixerBuilder::new();
+    for dir in dirs {
+        try!(mixer_builder.dir(dir));
+    }
+    mixer_builder.build()
 }
 
 fn create_voice(voice_config: VoiceConfig, endpoint: cpal::Endpoint) -> cpal::Voice {
@@ -190,12 +213,11 @@ fn main() {
                       .arg(clap::Arg::with_name("dir")
                                .help("A digraph directory")
                                .index(1)
-                               .required(true)
                                .multiple(true))
                       .get_matches();
 
     let dirs = matches.values_of("dir").map(|v| v.collect()).unwrap_or(vec![]);
-    let (voice_config, mut mixer, coefficient) = insist!(build_mixer(dirs.as_slice()),
+    let (voice_config, coefficient, mut mixer) = insist!(build_mixer(dirs.as_slice()),
                                                          "failed to construct mixer");
     let num_channels = voice_config.0 as usize;
 
@@ -208,7 +230,7 @@ fn main() {
 
         if max_read == 0 {
             if let Err(err) = mixer.load() {
-                print_error!(&err, "loading mixer");
+                print_error!(&err, "warning: an error occurred loading the mixer");
             }
             continue;
         }
