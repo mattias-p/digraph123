@@ -348,6 +348,7 @@ pub enum Error {
     AudioFormat,
     File(path::PathBuf, Box<Error>),
     Dir(String, Box<Error>),
+    NoItems,
 }
 
 impl error::Error for Error {
@@ -360,6 +361,7 @@ impl error::Error for Error {
             &Error::AudioFormat => "inconsistent audio formats",
             &Error::File(_, _) => "an error occurred in a file",
             &Error::Dir(_, _) => "an error occurred in a directory",
+            &Error::NoItems => "no items",
         }
     }
 
@@ -416,8 +418,11 @@ impl fmt::Display for Error {
                 write!(f, "{}:\n * {}", self.description(), parts.join("\n * "))
             }
             &::stream::Error::AudioFormat => write!(f, "{}", self.description()),
-            &::stream::Error::File(ref path, _) => write!(f, "error in file '{}'", path.display()),
-            &::stream::Error::Dir(ref path, _) => write!(f, "error in directory '{}'", path),
+            &::stream::Error::File(ref path, _) => {
+                write!(f, "problem with file '{}'", path.display())
+            }
+            &::stream::Error::Dir(ref path, _) => write!(f, "problem with directory '{}'", path),
+            &::stream::Error::NoItems => write!(f, "{}", self.description()),
         }
     }
 }

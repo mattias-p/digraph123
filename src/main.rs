@@ -11,7 +11,6 @@ mod digraph;
 mod stream;
 
 use std::error::Error;
-use std::env;
 use std::fs;
 use std::io;
 use std::io::Write;
@@ -27,7 +26,7 @@ type VoiceConfig = (u8, u32);
 macro_rules! print_error {
     ($err:expr, $fmt:tt $(, $arg:expr)*) => {{
         let mut err = $err as &std::error::Error;
-        writeln!(&mut io::stderr(), concat!("{}: ", $fmt, "\n\tcaused by: {}"), get_prog_name() $(, $arg)*, err).ok();
+        writeln!(&mut io::stderr(), concat!($fmt, "\n\tcaused by: {}") $(, $arg)*, err).ok();
         while let Some(cause) = err.cause() {
             writeln!(&mut io::stderr(), "\tcaused by: {}", cause).ok();
             err = cause;
@@ -45,21 +44,6 @@ macro_rules! insist {
             }
         }
     }   
-}
-
-fn get_prog_name() -> &'static str {
-    fn aux() -> String {
-        let prog_name = env::args().next().expect("getting the program name");
-        path::Path::new(&prog_name)
-            .file_name()
-            .expect("file_name")
-            .to_string_lossy()
-            .into_owned()
-    }
-    lazy_static! {
-        static ref PROG_NAME: String = aux();
-    }
-    PROG_NAME.as_str()
 }
 
 struct PlayerBuilder {
@@ -84,8 +68,8 @@ impl PlayerBuilder {
 
     fn path_to_section(path: &path::Path) -> Option<(String, String, Option<String>)> {
         lazy_static! {
-        static ref SECTION_RE: regex::Regex = regex::Regex::new(r"^([^-]+)-([^-]+)(?:-(.+))?.ogg$").unwrap();
-    }
+            static ref SECTION_RE: regex::Regex = regex::Regex::new(r"^([^-]+)-([^-]+)(?:-(.+))?.ogg$").unwrap();
+        }
         path.file_name()
             .and_then(|os_str| os_str.to_str())
             .and_then(|file_name| SECTION_RE.captures(file_name))
@@ -114,15 +98,15 @@ impl PlayerBuilder {
         }
     }
 
-    fn get_voice_config(&self) -> Option<VoiceConfig> {
-        self.voice_config
-    }
-
-    fn build(self) -> stream::Result<stream::Player> {
-        let digraph: digraph::Digraph = self.digraph_builder.into();
-        let tracks = digraph.into_random_walk(Box::new(rand::thread_rng()))
-                            .map(|p| stream::Track::vorbis(p.as_path()));
-        stream::Player::new(Box::new(tracks))
+    fn build(self) -> stream::Result<Option<(VoiceConfig, stream::Player)>> {
+        if let Some(voice_config) = self.voice_config {
+            let digraph: digraph::Digraph = self.digraph_builder.into();
+            let tracks = digraph.into_random_walk(Box::new(rand::thread_rng()))
+                                .map(|p| stream::Track::vorbis(p.as_path()));
+            Ok(Some((voice_config, try!(stream::Player::new(Box::new(tracks))))))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -145,18 +129,18 @@ impl MixerBuilder {
             for entry in try!(fs::read_dir(dir)) {
                 let entry = try!(entry);
                 if let Err(err) = player_builder.path(entry.path()) {
-                    print_error!(&err, "warning: ignoring file due to error");
+                    print_error!(&err, "warning: ignoring file");
                 }
             }
-            let dir_voice_config = player_builder.get_voice_config();
-            let player = try!(player_builder.build());
-
-            this.voice_config = this.voice_config.or(dir_voice_config);
-            if dir_voice_config == this.voice_config {
+            if let Some((voice_config, player)) = try!(player_builder.build()) {
+                this.voice_config = this.voice_config.or(Some(voice_config));
+                if Some(voice_config) != this.voice_config {
+                    return Err(stream::Error::AudioFormat);
+                }
                 this.streams.push(Box::new(player));
                 Ok(())
             } else {
-                Err(stream::Error::AudioFormat)
+                Err(stream::Error::NoItems)
             }
         }
         inner(self, dir)
@@ -169,25 +153,16 @@ impl MixerBuilder {
             let coefficient = 1.0 / self.streams.len() as f32;
             Ok((voice_config, coefficient, stream::Mixer::new(self.streams)))
         } else {
-            Err(stream::Error::AudioFormat)
+            Err(stream::Error::NoItems)
         }
     }
-}
-
-fn build_mixer(dirs: &[&str]) -> stream::Result<(VoiceConfig, f32, stream::Mixer)> {
-    assert!(dirs.len() > 0);
-    let mut mixer_builder = MixerBuilder::new();
-    for dir in dirs {
-        try!(mixer_builder.dir(dir));
-    }
-    mixer_builder.build()
 }
 
 fn create_voice(voice_config: VoiceConfig, endpoint: cpal::Endpoint) -> cpal::Voice {
     let format = {
         let formats = endpoint.get_supported_formats_list();
         let formats = insist!(formats,
-                              "failed to get list of formats supported by default endpoint");
+                              "fatal: failed to get list of supported audio formats");
 
         formats.filter(|f| f.samples_rate.0 as u32 == voice_config.1)
                .filter(|f| f.channels.len() == voice_config.0 as usize)
@@ -204,8 +179,6 @@ fn create_voice(voice_config: VoiceConfig, endpoint: cpal::Endpoint) -> cpal::Vo
 }
 
 fn main() {
-    get_prog_name();
-
     let matches = clap::App::new("digraph123")
                       .version("1.0.0")
                       .author("Mattias Päivärinta")
@@ -213,12 +186,18 @@ fn main() {
                       .arg(clap::Arg::with_name("dir")
                                .help("A digraph directory")
                                .index(1)
+                               .required(true)
                                .multiple(true))
                       .get_matches();
 
-    let dirs = matches.values_of("dir").map(|v| v.collect()).unwrap_or(vec![]);
-    let (voice_config, coefficient, mut mixer) = insist!(build_mixer(dirs.as_slice()),
-                                                         "failed to construct mixer");
+    let mut mixer_builder = MixerBuilder::new();
+    for dir in matches.values_of("dir").map(|v| v.collect()).unwrap_or(vec![]) {
+        if let Err(err) = mixer_builder.dir(dir) {
+            print_error!(&err, "warning: ignoring directory");
+        }
+    }
+    let (voice_config, coefficient, mut mixer) = insist!(mixer_builder.build(),
+                                                         "fatal: failed to construct mixer");
     let num_channels = voice_config.0 as usize;
 
     let endpoint = cpal::get_default_endpoint().expect("default endpoing");
