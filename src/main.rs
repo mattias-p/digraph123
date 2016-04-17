@@ -82,9 +82,9 @@ fn path_to_voice_config(path: &path::Path) -> Result<VoiceConfig, stream::Error>
     Ok((packet.channels as u8, packet.rate as u32))
 }
 
-fn build_player(dir: &str) -> (Option<VoiceConfig>, stream::Player) {
+fn build_player(dir: &str) -> stream::Result<(Option<VoiceConfig>, stream::Player)> {
     let mut voice_config = None;
-    let dir_files = insist!(fs::read_dir(dir), "reading directory '{}'", dir);
+    let dir_files = try!(fs::read_dir(dir));
     let mut digraph_builder = digraph::DigraphBuilder::new();
     for entry in dir_files {
         let entry = insist!(entry, "traversing directory '{}'", dir);
@@ -110,7 +110,7 @@ fn build_player(dir: &str) -> (Option<VoiceConfig>, stream::Player) {
     let digraph: digraph::Digraph = digraph_builder.into();
     let tracks = digraph.into_random_walk(Box::new(rand::thread_rng()))
                         .map(|p| stream::Track::vorbis(p.as_path()));
-    (voice_config, stream::Player::new(Box::new(tracks)).unwrap())
+    Ok((voice_config, stream::Player::new(Box::new(tracks)).unwrap()))
 }
 
 fn build_mixer(dirs: &[&str]) -> (VoiceConfig, stream::Mixer, f32) {
@@ -118,7 +118,9 @@ fn build_mixer(dirs: &[&str]) -> (VoiceConfig, stream::Mixer, f32) {
     let mut voice_config = None;
     let mut streams: Vec<Box<stream::Stream>> = vec![];
     for dir in dirs {
-        let (dir_voice_config, player) = build_player(dir);
+        let (dir_voice_config, player) = insist!(build_player(dir),
+                                                 "building player for directory '{}'",
+                                                 dir);
         voice_config = voice_config.or(dir_voice_config);
         if dir_voice_config == voice_config {
             streams.push(Box::new(player));
