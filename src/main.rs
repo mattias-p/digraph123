@@ -90,14 +90,11 @@ impl PlayerBuilder {
     fn get_voice_config(&self) -> Option<VoiceConfig> {
         self.voice_config
     }
-}
-
-impl Into<stream::Player> for PlayerBuilder {
-    fn into(self) -> stream::Player {
+    fn build(self) -> stream::Result<stream::Player> {
         let digraph: digraph::Digraph = self.digraph_builder.into();
         let tracks = digraph.into_random_walk(Box::new(rand::thread_rng()))
                             .map(|p| stream::Track::vorbis(p.as_path()));
-        stream::Player::new(Box::new(tracks)).unwrap()
+        stream::Player::new(Box::new(tracks))
     }
 }
 
@@ -122,23 +119,20 @@ fn path_to_voice_config(path: &path::Path) -> Result<VoiceConfig, stream::Error>
     Ok((packet.channels as u8, packet.rate as u32))
 }
 
-fn build_player(dir: &str) -> stream::Result<(Option<VoiceConfig>, stream::Player)> {
-    let mut player_builder = PlayerBuilder::new();
-    for entry in try!(fs::read_dir(dir)) {
-        let entry = try!(entry);
-        try!(player_builder.path(&entry.path()));
-    }
-    Ok((player_builder.get_voice_config(), player_builder.into()))
-}
 
-fn build_mixer(dirs: &[&str]) -> (VoiceConfig, stream::Mixer, f32) {
+fn build_mixer(dirs: &[&str]) -> stream::Result<(VoiceConfig, stream::Mixer, f32)> {
     assert!(dirs.len() > 0);
     let mut voice_config = None;
     let mut streams: Vec<Box<stream::Stream>> = vec![];
     for dir in dirs {
-        let (dir_voice_config, player) = insist!(build_player(dir),
-                                                 "while building a player for directory '{}'",
-                                                 dir);
+        let mut player_builder = PlayerBuilder::new();
+        for entry in try!(fs::read_dir(dir)) {
+            let entry = try!(entry);
+            try!(player_builder.path(&entry.path()));
+        }
+        let dir_voice_config = player_builder.get_voice_config();
+        let player = try!(player_builder.build());
+
         voice_config = voice_config.or(dir_voice_config);
         if dir_voice_config == voice_config {
             streams.push(Box::new(player));
@@ -153,9 +147,9 @@ fn build_mixer(dirs: &[&str]) -> (VoiceConfig, stream::Mixer, f32) {
 
     let coefficient = 1.0 / streams.len() as f32;
 
-    (voice_config.unwrap(),
-     stream::Mixer::new(streams),
-     coefficient)
+    Ok((voice_config.unwrap(),
+        stream::Mixer::new(streams),
+        coefficient))
 }
 
 fn create_voice(voice_config: VoiceConfig, endpoint: cpal::Endpoint) -> cpal::Voice {
@@ -193,7 +187,8 @@ fn main() {
                       .get_matches();
 
     let dirs = matches.values_of("dir").map(|v| v.collect()).unwrap_or(vec![]);
-    let (voice_config, mut mixer, coefficient) = build_mixer(dirs.as_slice());
+    let (voice_config, mut mixer, coefficient) = insist!(build_mixer(dirs.as_slice()),
+                                                         "while building mixer");
     let num_channels = voice_config.0 as usize;
 
     let endpoint = cpal::get_default_endpoint().expect("default endpoing");
