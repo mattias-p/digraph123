@@ -114,25 +114,14 @@ fn build_player(dir: &str) -> (Option<StreamConfig>, stream::Player) {
      stream::Player::new(Box::new(tracks)).unwrap())
 }
 
-fn main() {
-    get_prog_name();
-
-    let mut channel_stream_config = None;
-    let matches = clap::App::new("digraph123")
-                      .version("1.0.0")
-                      .author("Mattias Päivärinta")
-                      .about("Play digraph shaped audio recordings using random walk")
-                      .arg(clap::Arg::with_name("dir")
-                               .help("A digraph directory")
-                               .index(1)
-                               .multiple(true))
-                      .get_matches();
-    let dirs: Vec<_> = matches.values_of("dir").map(|v| v.collect()).unwrap_or(vec![]);
+fn build_mixer(dirs: &[&str]) -> (StreamConfig, stream::Mixer, f32) {
+    assert!(dirs.len() > 0);
+    let mut stream_config = None;
     let mut streams: Vec<Box<stream::Stream>> = vec![];
     for dir in dirs {
         let (dir_stream_config, player) = build_player(dir);
-        channel_stream_config = channel_stream_config.or(dir_stream_config);
-        if dir_stream_config == channel_stream_config {
+        stream_config = stream_config.or(dir_stream_config);
+        if dir_stream_config == stream_config {
             streams.push(Box::new(player));
         } else {
             writeln!(&mut io::stderr(),
@@ -144,9 +133,27 @@ fn main() {
     }
 
     let coefficient = 1.0 / streams.len() as f32;
-    let mut mixer = stream::Mixer::new(streams);
+    (stream_config.unwrap(),
+     stream::Mixer::new(streams),
+     coefficient)
+}
 
-    let channel_stream_config = channel_stream_config.unwrap();
+fn main() {
+    get_prog_name();
+
+    let matches = clap::App::new("digraph123")
+                      .version("1.0.0")
+                      .author("Mattias Päivärinta")
+                      .about("Play digraph shaped audio recordings using random walk")
+                      .arg(clap::Arg::with_name("dir")
+                               .help("A digraph directory")
+                               .index(1)
+                               .required(true)
+                               .multiple(true))
+                      .get_matches();
+
+    let dirs: Vec<_> = matches.values_of("dir").map(|v| v.collect()).unwrap_or(vec![]);
+    let (channel_stream_config, mut mixer, coefficient) = build_mixer(dirs.as_slice());
 
     let endpoint = cpal::get_default_endpoint().expect("default endpoint");
     let format = {
