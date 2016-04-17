@@ -88,12 +88,12 @@ fn build_player(dir: &str) -> stream::Result<(Option<VoiceConfig>, stream::Playe
     let dir_files = try!(fs::read_dir(dir));
     let mut digraph_builder = digraph::DigraphBuilder::new();
     for entry in dir_files {
-        let entry = insist!(entry, "traversing directory '{}'", dir);
+        let entry = insist!(entry, "while traversing directory '{}'", dir);
         let path = entry.path();
         let path_display = path.display();
         if let Some((tail, head, _)) = path_to_section(&path) {
             let file_voice_config = insist!(path_to_voice_config(&path),
-                                            "getting voice config of '{}'",
+                                            "while getting voice config of '{}'",
                                             path_display);
             let file_voice_config = Some(file_voice_config);
             voice_config = voice_config.or(file_voice_config);
@@ -120,7 +120,7 @@ fn build_mixer(dirs: &[&str]) -> (VoiceConfig, stream::Mixer, f32) {
     let mut streams: Vec<Box<stream::Stream>> = vec![];
     for dir in dirs {
         let (dir_voice_config, player) = insist!(build_player(dir),
-                                                 "building player for directory '{}'",
+                                                 "while building a player for directory '{}'",
                                                  dir);
         voice_config = voice_config.or(dir_voice_config);
         if dir_voice_config == voice_config {
@@ -145,7 +145,7 @@ fn create_voice(voice_config: VoiceConfig, endpoint: cpal::Endpoint) -> cpal::Vo
     let format = {
         let formats = endpoint.get_supported_formats_list();
         let formats = insist!(formats,
-                              "getting list of formats supported by default endpoint");
+                              "while getting list of formats supported by default endpoint");
 
         formats.filter(|f| f.samples_rate.0 as u32 == voice_config.1)
                .filter(|f| f.channels.len() == voice_config.0 as usize)

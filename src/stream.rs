@@ -350,10 +350,10 @@ pub enum Error {
 impl error::Error for Error {
     fn description(&self) -> &str {
         match self {
-            &Error::Io(ref err) => err.description(),
-            &Error::Parse(ref err) => err.description(),
-            &Error::Vorbis(ref err) => err.description(),
-            &Error::Multiple(_) => "Multiple errors occurred",
+            &Error::Io(_) => "an I/O error occurred",
+            &Error::Parse(_) => "a parse error occurred",
+            &Error::Vorbis(_) => "a error occurred in the Vorbis decoder",
+            &Error::Multiple(_) => "multiple errors occurred",
         }
     }
 
