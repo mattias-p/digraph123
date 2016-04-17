@@ -26,10 +26,11 @@ type VoiceConfig = (u8, u32);
 
 macro_rules! print_error {
     ($err:expr, $fmt:tt $(, $arg:expr)*) => {{
-        writeln!(&mut io::stderr(), concat!("{}: error: ", $fmt, ": {}"), get_prog_name() $(, $arg)*, $err.description()).ok();
-        let err = $err;
-        while let Some(err) = err.cause() {
-            writeln!(&mut io::stderr(), "\tcaused by: {}", err.description()).unwrap();
+        let mut err = $err as &std::error::Error;
+        writeln!(&mut io::stderr(), concat!("{}: error: ", $fmt, ": {}"), get_prog_name() $(, $arg)*, err.description()).ok();
+        while let Some(cause) = err.cause() {
+            writeln!(&mut io::stderr(), "\tcaused by: {}", cause.description()).ok();
+            err = cause;
         }
     }}
 }
@@ -187,7 +188,7 @@ fn main() {
 
         if max_read == 0 {
             if let Err(err) = mixer.load() {
-                print_error!(err, "loading mixer");
+                print_error!(&err, "loading mixer");
             }
             continue;
         }
@@ -220,4 +221,5 @@ fn main() {
     while voice.get_pending_samples() > 0 {
         thread::sleep(time::Duration::from_millis(100));
     }
+
 }
