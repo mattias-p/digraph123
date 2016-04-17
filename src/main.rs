@@ -138,6 +138,26 @@ fn build_mixer(dirs: &[&str]) -> (StreamConfig, stream::Mixer, f32) {
      coefficient)
 }
 
+fn get_channel(stream_config: StreamConfig, endpoint: cpal::Endpoint) -> cpal::Voice {
+    let format = {
+        let formats = endpoint.get_supported_formats_list();
+        let formats = insist!(formats,
+                              "getting list of formats supported by default endpoint");
+
+        formats.filter(|f| f.samples_rate.0 as u32 == stream_config.1)
+               .filter(|f| f.channels.len() == stream_config.0 as usize)
+               .filter(|f| f.data_type == cpal::SampleFormat::F32)
+               .next()
+    };
+    let format = if let Some(format) = format {
+        format
+    } else {
+        panic!("stream format not supported");
+    };
+
+    cpal::Voice::new(&endpoint, &format).expect("Failed to create a channel")
+}
+
 fn main() {
     get_prog_name();
 
@@ -153,28 +173,13 @@ fn main() {
                       .get_matches();
 
     let dirs: Vec<_> = matches.values_of("dir").map(|v| v.collect()).unwrap_or(vec![]);
-    let (channel_stream_config, mut mixer, coefficient) = build_mixer(dirs.as_slice());
 
-    let endpoint = cpal::get_default_endpoint().expect("default endpoint");
-    let format = {
-        let formats = endpoint.get_supported_formats_list();
-        let formats = insist!(formats,
-                              "getting list of formats supported by default endpoint");
+    let (stream_config, mut mixer, coefficient) = build_mixer(dirs.as_slice());
 
-        formats.filter(|f| f.samples_rate.0 as u32 == channel_stream_config.1)
-               .filter(|f| f.channels.len() == channel_stream_config.0 as usize)
-               .filter(|f| f.data_type == cpal::SampleFormat::F32)
-               .next()
-    };
-    let format = if let Some(format) = format {
-        format
-    } else {
-        panic!("stream format not supported");
-    };
+    let mut channel = get_channel(stream_config,
+                                  cpal::get_default_endpoint().expect("default endpoing"));
 
-    let mut channel = cpal::Voice::new(&endpoint, &format).expect("Failed to create a channel");
-
-    let num_channels = channel_stream_config.0 as usize;
+    let num_channels = stream_config.0 as usize;
 
     while !mixer.is_eos() {
         let max_read = mixer.max_read();
