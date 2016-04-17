@@ -29,7 +29,7 @@ impl DigraphBuilder {
             arrows: collections::HashMap::new(),
         }
     }
-    pub fn arrow(mut self, tail: String, head: String, path: path::PathBuf) -> Self {
+    pub fn arrow(&mut self, tail: String, head: String, path: path::PathBuf) -> &mut Self {
         let next_index = self.indices.len();
         let tail = *self.indices.entry(tail).or_insert(next_index);
         let next_index = self.indices.len();

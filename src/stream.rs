@@ -345,6 +345,7 @@ pub enum Error {
     Parse(num::ParseIntError),
     Vorbis(vorbis::VorbisError),
     Multiple(Vec<Error>),
+    AudioFormat,
 }
 
 impl error::Error for Error {
@@ -354,6 +355,7 @@ impl error::Error for Error {
             &Error::Parse(_) => "a parse error occurred",
             &Error::Vorbis(_) => "a error occurred in the Vorbis decoder",
             &Error::Multiple(_) => "multiple errors occurred",
+            &Error::AudioFormat => "inconsistent audio formats",
         }
     }
 
@@ -362,7 +364,7 @@ impl error::Error for Error {
             &Error::Io(ref err) => Some(err as &error::Error),
             &Error::Parse(ref err) => Some(err as &error::Error),
             &Error::Vorbis(ref err) => Some(err as &error::Error),
-            &Error::Multiple(_) => None,
+            _ => None,
         }
     }
 }
@@ -397,14 +399,16 @@ impl From<Vec<Error>> for Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        use std::error::Error;
         match self {
-            &Error::Io(ref err) => write!(f, "IO error: {}", err),
-            &Error::Parse(ref err) => write!(f, "Parse error: {}", err),
-            &Error::Vorbis(ref err) => write!(f, "Vorbis error: {}", err),
-            &Error::Multiple(ref err) => {
-                let parts: Vec<_> = err.iter().map(Error::to_string).collect();
-                write!(f, "Multiple errors:\n * {}", parts.join("\n * "))
+            &::stream::Error::Io(ref err) => write!(f, "{}: {}", self.description(), err),
+            &::stream::Error::Parse(ref err) => write!(f, "{}: {}", self.description(), err),
+            &::stream::Error::Vorbis(ref err) => write!(f, "{}: {}", self.description(), err),
+            &::stream::Error::Multiple(ref err) => {
+                let parts: Vec<_> = err.iter().map(::stream::Error::to_string).collect();
+                write!(f, "{}:\n * {}", self.description(), parts.join("\n * "))
             }
+            &::stream::Error::AudioFormat => write!(f, "{}", self.description()),
         }
     }
 }

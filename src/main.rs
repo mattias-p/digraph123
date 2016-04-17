@@ -62,6 +62,45 @@ fn get_prog_name() -> &'static str {
     PROG_NAME.as_str()
 }
 
+struct PlayerBuilder {
+    digraph_builder: digraph::DigraphBuilder,
+    voice_config: Option<VoiceConfig>,
+}
+
+impl PlayerBuilder {
+    fn new() -> PlayerBuilder {
+        PlayerBuilder {
+            digraph_builder: digraph::DigraphBuilder::new(),
+            voice_config: None,
+        }
+    }
+
+    fn path(&mut self, path: &path::Path) -> stream::Result<&mut Self> {
+        if let Some((tail, head, _)) = path_to_section(&path) {
+            let file_voice_config = try!(path_to_voice_config(&path));
+            self.voice_config = self.voice_config.or(Some(file_voice_config));
+            if Some(file_voice_config) != self.voice_config {
+                return Err(stream::Error::AudioFormat);
+            }
+            self.digraph_builder.arrow(tail, head, path.to_path_buf());
+        }
+        Ok(self)
+    }
+
+    fn get_voice_config(&self) -> Option<VoiceConfig> {
+        self.voice_config
+    }
+}
+
+impl Into<stream::Player> for PlayerBuilder {
+    fn into(self) -> stream::Player {
+        let digraph: digraph::Digraph = self.digraph_builder.into();
+        let tracks = digraph.into_random_walk(Box::new(rand::thread_rng()))
+                            .map(|p| stream::Track::vorbis(p.as_path()));
+        stream::Player::new(Box::new(tracks)).unwrap()
+    }
+}
+
 fn path_to_section(path: &path::Path) -> Option<(String, String, Option<String>)> {
     lazy_static! {
         static ref SECTION_RE: regex::Regex = regex::Regex::new(r"^([^-]+)-([^-]+)(?:-(.+))?.ogg$").unwrap();
@@ -84,34 +123,12 @@ fn path_to_voice_config(path: &path::Path) -> Result<VoiceConfig, stream::Error>
 }
 
 fn build_player(dir: &str) -> stream::Result<(Option<VoiceConfig>, stream::Player)> {
-    let mut voice_config = None;
-    let dir_files = try!(fs::read_dir(dir));
-    let mut digraph_builder = digraph::DigraphBuilder::new();
-    for entry in dir_files {
-        let entry = insist!(entry, "while traversing directory '{}'", dir);
-        let path = entry.path();
-        let path_display = path.display();
-        if let Some((tail, head, _)) = path_to_section(&path) {
-            let file_voice_config = insist!(path_to_voice_config(&path),
-                                            "while getting voice config of '{}'",
-                                            path_display);
-            let file_voice_config = Some(file_voice_config);
-            voice_config = voice_config.or(file_voice_config);
-            if file_voice_config == voice_config {
-                digraph_builder = digraph_builder.arrow(tail, head, path.clone());
-            } else {
-                writeln!(&mut io::stderr(),
-                         "{}: warning: incompatible voice config in file '{}'",
-                         get_prog_name(),
-                         path_display)
-                    .ok();
-            }
-        }
+    let mut player_builder = PlayerBuilder::new();
+    for entry in try!(fs::read_dir(dir)) {
+        let entry = try!(entry);
+        try!(player_builder.path(&entry.path()));
     }
-    let digraph: digraph::Digraph = digraph_builder.into();
-    let tracks = digraph.into_random_walk(Box::new(rand::thread_rng()))
-                        .map(|p| stream::Track::vorbis(p.as_path()));
-    Ok((voice_config, stream::Player::new(Box::new(tracks)).unwrap()))
+    Ok((player_builder.get_voice_config(), player_builder.into()))
 }
 
 fn build_mixer(dirs: &[&str]) -> (VoiceConfig, stream::Mixer, f32) {
