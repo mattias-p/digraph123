@@ -12,10 +12,10 @@ labeled "start" and "end" and an arrow (or *track*) going from "start" to "end".
 
 .. image:: images/linear.png
 
-Another type
-of audio recording combines an intro part and a loop part. This can be described
-using two nodes labeled "start" and "loop" and two tracks - one going from
-"start" to "loop" and another going from "loop" back onto itself.
+Another type of audio recording combines an intro part and a loop or main part.
+This can be described using two nodes labeled "start" and "loop" and two tracks
+- one going from "start" to "loop" and another going from "loop" back onto
+itself.
 
 .. image:: images/loop.png
 
