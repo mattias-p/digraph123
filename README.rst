@@ -8,95 +8,63 @@ Introduction
 ------------
 A traditional audio recording has a single timeline from start to end. In the
 language of directed graphs (digraphs) this can be described using two nodes
-labeled "start" and "end" and an arrow going from "start" to "end".
+labeled "start" and "end" and an arrow (or *track*) going from "start" to "end".
 
 .. image:: images/linear.png
 
 Another type
 of audio recording combines an intro part and a loop part. This can be described
-using two nodes labeled "start" and "loop" and two arrows - one going from
+using two nodes labeled "start" and "loop" and two tracks - one going from
 "start" to "loop" and another going from "loop" back onto itself.
 
 .. image:: images/loop.png
 
-A *digraph shaped audio recording* is a generalization of the above concept to the set of
-non-empty digraphs with one node labelled "start". Here's an example inspired by simple adventure games:
+A *digraph shaped audio recording* is a generalization of the above concept to
+the set of non-empty digraphs with one node labelled "start". Here's an example
+inspired by simple adventure games:
 
 .. image:: images/example.png
 
-**digraph123** defines a format for digraph shaped audio recordings and
-traverses recordings in this format from the start node using random walk. In
-its default mode of operation it plays the part associated with each traversed
-arrow.
+**digraph123** defines a format for digraph shaped audio recordings and plays
+such recordings from the "start" node using random walk.
 
 
-Installation
-------------
+Install from source
+-------------------
 
-1. Make sure the following dependencies are installed:
+Install Rust
+````````````
+An easy way to install the stable binaries for Linux and Mac is to run this in your shell::
+    $ curl -sSf https://static.rust-lang.org/rustup.sh | sh
 
-   * Python 2.7
-   * Pygame 1.9
+Get the source
+``````````````
+Clone or download from the `Github repo`_.
 
-2. Download and extract a ZIP of the current version from `here
-   <https://github.com/mattias-p/digraph123>`_.
+To clone::
+    $ git clone https://github.com/mattias-p/digraph123.git
+    $ cd digraph123
 
-3. Add **digraph123** to your PATH_.
+To download::
+    $ wget https://github.com/mattias-p/digraph123/archive/master.zip
+    $ unzip master.zip
+    $ cd digraph123-master
 
+Build and install
+`````````````````
+::
+    $ cargo install 
 
-Gettings started
-----------------
-**digraph123** is a command line tool, so start out by opening a console_.
-
-
-Play an example
-~~~~~~~~~~~~~~~
-I'd recommend a recording to try out, but I don't know of any. The best I can do
-is to direct you to create your own non-linear medley example.
-
-1. Create a directory called ``medley-example``.
-
-2. Download a dozen tracks of less than ten seconds each into ``medley-example``
-   from https://www.jamendo.com/community/short/tracks.
-
-3. Rename the files to:
-
-   * down-north.mp3
-   * down-south.mp3
-   * east-down.mp3
-   * east-up.mp3
-   * north-east.mp3
-   * north-west.mp3
-   * south-east.mp3
-   * south-west.mp3
-   * up-north.mp3
-   * up-south.mp3
-   * west-down.mp3
-   * west-up.mp3
-
-4. Play it::
-
-     digraph123 path/to/medley-example
-
-   First, feedback about all found arrows are printed to stderr. This can be
-   used to verify that the constructed digraph matches your expectations.
-
-   As an arrow begins to be traversed, the path of its associated audio file is
-   printed to stdout. This can be used to store a playlist of the traversal.
-
+Run
+```
+Play the included recording included in the example directory::
+    $ digraph123 example
 
 Learn more
-~~~~~~~~~~
+``````````
 Use the ``--help`` option for details on usage and operation::
 
-  digraph123 --help
-
-
-Troubleshooting
----------------
-I get complains about too few arguments:
-  digraph123 expects a path to a set of audio files as an argument. See the
-  Getting started section for an example.
+    $ digraph123 --help
 
 
 Contributing
@@ -132,31 +100,26 @@ TODO
 
 1. Getting started
 
-   * Include example recording
-   * Rewrite getting started section
+   * Include example recording under some `Creative Commons`_ license
 
 2. Installation
 
-   * Split code into script and library
-   * Proper pip support
-   * Create a test suite
-   * Include Makefile
-   * Update installation instruction
+   * Point out some directions for installing Rust on Windows
+   * Provide precompiled binaries
 
 3. Documentation
 
+   * Write documentation for the SPLICEPOINT Vorbis comment
    * Document library and script
-   * Support Sphinx
 
 4. Code
 
-   * Use pep8
-   * Look into Click
+   * Create a test suite
 
-
-.. _console:       https://en.wikipedia.org/wiki/Command-line_interface
-.. _digraph123:    https://github.com/mattias-p/digraph123
-.. _digraph:       https://en.wikipedia.org/wiki/Directed_graph
-.. _issue tracker: https://github.com/mattias-p/digraph123/issues
-.. _master branch: https://github.com/mattias-p/digraph123/tree/master
-.. _PATH:          https://en.wikipedia.org/wiki/PATH_(variable)
+.. _console:          https://en.wikipedia.org/wiki/Command-line_interface
+.. _digraph123:       https://github.com/mattias-p/digraph123
+.. _digraph:          https://en.wikipedia.org/wiki/Directed_graph
+.. _issue tracker:    https://github.com/mattias-p/digraph123/issues
+.. _master branch:    https://github.com/mattias-p/digraph123/tree/master
+.. _Github repo:      https://github.com/mattias-p/digraph123
+.. _Creative Commons: https://creativecommons.org/
