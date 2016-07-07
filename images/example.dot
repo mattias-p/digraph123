@@ -1,11 +1,15 @@
 digraph {
     rankdir=TB;
     start:e -> woods:w;
-    woods:ne -> woods:nw;
+    woods:ne -> woods:nw [label="woods theme"];
+    woods:se -> village:ne;
+    village -> village [label="village theme"];
+    village:nw -> woods:sw;
     woods:e -> castle:w;
-    castle:ne -> castle:nw;
+    castle:ne -> castle:nw [label="castle theme"];
     castle:e -> boss:w;
-    boss:ne -> boss:nw;
-    boss:se -> woods:sw;
+    boss:ne -> boss:nw [label="boss theme"];
+    boss:s -> woods:s;
     { rank=same; start, woods, castle, boss }
+    { rank=same; village }
 }

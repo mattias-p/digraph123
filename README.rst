@@ -20,7 +20,7 @@ using two nodes labeled "start" and "loop" and two arrows - one going from
 .. image:: images/loop.png
 
 A *digraph shaped audio recording* is a generalization of the above concept to the set of
-non-empty digraphs with one node labelled "start". Here's slightly a more complex example:
+non-empty digraphs with one node labelled "start". Here's an example inspired by simple adventure games:
 
 .. image:: images/example.png
 
