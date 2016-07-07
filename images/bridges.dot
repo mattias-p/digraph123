@@ -1,0 +1,23 @@
+digraph {
+    ratio=0.6;
+    {
+        rank=same;
+        Altstadt;
+    }
+    {
+        rank=same;
+        Lomse;
+        Kneiphof;
+    }
+    {
+        rank=same;
+        start;
+    }
+    start:e -> Lomse:s;
+    Lomse:n -> Altstadt:e;
+    Altstadt:s -> Kneiphof:ne;
+    Kneiphof:s -> start:w;
+    start:n -> Kneiphof:se;
+    Kneiphof:e -> Lomse:w;
+    Kneiphof:n -> Altstadt:w;
+}

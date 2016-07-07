@@ -1,0 +1,8 @@
+digraph finite_state_machine {
+    {
+        rank=same;
+        node [shape = circle];
+        node [fixedsize = true];
+        start -> end [ label = everything ];
+    }
+}

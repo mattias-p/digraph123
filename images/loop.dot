@@ -1,0 +1,9 @@
+digraph finite_state_machine {
+    {
+        rank=same;
+        node [shape = circle];
+        node [fixedsize = true];
+        start -> loop [ label = intro ];
+        loop : ne -> loop : se [ label = main ];
+    }
+}

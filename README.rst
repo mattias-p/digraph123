@@ -4,24 +4,30 @@ digraph123_
 
 Play digraph_ shaped audio recordings using random walk.
 
-
 Introduction
 ------------
 A traditional audio recording has a single timeline from start to end. In the
 language of directed graphs (digraphs) this can be described using two nodes
-labeled "start" and "end" and an arrow going from "start" to "end". Another type
+labeled "start" and "end" and an arrow going from "start" to "end".
+
+.. image:: images/linear.svg
+
+Another type
 of audio recording combines an intro part and a loop part. This can be described
 using two nodes labeled "start" and "loop" and two arrows - one going from
 "start" to "loop" and another going from "loop" back onto itself.
 
-*Digraph shaped audio recording* generalizes the above concept to the set of all
-non-empty digraphs with one of their nodes designated the *start node*.
+.. image:: images/loop.svg
+
+A *digraph shaped audio recording* is a generalization of the above concept to the set of
+non-empty digraphs with one node labelled "start". Here's slightly a more complex example:
+
+.. image:: images/bridges.svg
 
 **digraph123** defines a format for digraph shaped audio recordings and
 traverses recordings in this format from the start node using random walk. In
 its default mode of operation it plays the part associated with each traversed
-arrow. Alternatively it can be muted to generate playlists of the traversed
-parts at a rate not limited by the playback of individual parts.
+arrow.
 
 
 Installation
