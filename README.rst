@@ -35,6 +35,7 @@ Install from source
 Install Rust
 ````````````
 An easy way to install the stable binaries for Linux and Mac is to run this in your shell::
+
     $ curl -sSf https://static.rust-lang.org/rustup.sh | sh
 
 Get the source
@@ -42,10 +43,12 @@ Get the source
 Clone or download from the `Github repo`_.
 
 To clone::
+
     $ git clone https://github.com/mattias-p/digraph123.git
     $ cd digraph123
 
 To download::
+
     $ wget https://github.com/mattias-p/digraph123/archive/master.zip
     $ unzip master.zip
     $ cd digraph123-master
@@ -53,11 +56,13 @@ To download::
 Build and install
 `````````````````
 ::
+
     $ cargo install 
 
 Run
 ```
 Play the included recording included in the example directory::
+
     $ digraph123 example
 
 Learn more
@@ -78,21 +83,21 @@ Contributing
 
 License
 -------
-| digraph123 plays digraph shaped audio recordings.
-| Copyright (C) 2016  Mattias Päivärinta
-|
-| This program is free software: you can redistribute it and/or modify
-| it under the terms of the GNU General Public License as published by
-| the Free Software Foundation, either version 3 of the License, or
-| (at your option) any later version.
-|
-| This program is distributed in the hope that it will be useful,
-| WITHOUT ANY WARRANTY; without even the implied warranty of
-| MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-| GNU General Public License for more details.
-|
-| You should have received a copy of the GNU General Public License
-| along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    digraph123 plays digraph shaped audio recordings.
+    Copyright (C) 2016  Mattias Päivärinta
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
 TODO
