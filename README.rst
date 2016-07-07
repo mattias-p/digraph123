@@ -10,19 +10,19 @@ A traditional audio recording has a single timeline from start to end. In the
 language of directed graphs (digraphs) this can be described using two nodes
 labeled "start" and "end" and an arrow going from "start" to "end".
 
-.. image:: images/linear.svg
+.. image:: images/linear.png
 
 Another type
 of audio recording combines an intro part and a loop part. This can be described
 using two nodes labeled "start" and "loop" and two arrows - one going from
 "start" to "loop" and another going from "loop" back onto itself.
 
-.. image:: images/loop.svg
+.. image:: images/loop.png
 
 A *digraph shaped audio recording* is a generalization of the above concept to the set of
 non-empty digraphs with one node labelled "start". Here's slightly a more complex example:
 
-.. image:: images/bridges.svg
+.. image:: images/bridges.png
 
 **digraph123** defines a format for digraph shaped audio recordings and
 traverses recordings in this format from the start node using random walk. In
