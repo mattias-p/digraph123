@@ -129,4 +129,4 @@ TODO
 .. _master branch:    https://github.com/mattias-p/digraph123/tree/master
 .. _Github repo:      https://github.com/mattias-p/digraph123
 .. _Creative Commons: https://creativecommons.org/
-.. _Rustup:           https://rustup.rs/
+.. _Rustup:           https://www.rustup.rs/
