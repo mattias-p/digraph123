@@ -37,7 +37,7 @@ Install Rust
 Rustup_ provides an easy way to install Rust for Linux and Mac by running this
 in your shell::
 
-    $ curl -sSf https://static.rust-lang.org/rustup.sh | sh
+    $ curl -sSf https://sh.rustup.rs | sh
 
 Get the source
 ``````````````
