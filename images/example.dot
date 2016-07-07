@@ -1,0 +1,11 @@
+digraph {
+    rankdir=TB;
+    start:e -> woods:w;
+    woods:ne -> woods:nw;
+    woods:e -> castle:w;
+    castle:ne -> castle:nw;
+    castle:e -> boss:w;
+    boss:ne -> boss:nw;
+    boss:se -> woods:sw;
+    { rank=same; start, woods, castle, boss }
+}

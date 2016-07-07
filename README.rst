@@ -22,7 +22,7 @@ using two nodes labeled "start" and "loop" and two arrows - one going from
 A *digraph shaped audio recording* is a generalization of the above concept to the set of
 non-empty digraphs with one node labelled "start". Here's slightly a more complex example:
 
-.. image:: images/bridges.png
+.. image:: images/example.png
 
 **digraph123** defines a format for digraph shaped audio recordings and
 traverses recordings in this format from the start node using random walk. In
