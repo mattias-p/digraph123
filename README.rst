@@ -34,7 +34,8 @@ Install from source
 
 Install Rust
 ````````````
-An easy way to install the stable binaries for Linux and Mac is to run this in your shell::
+Rustup_ provides an easy way to install Rust for Linux and Mac by running this
+in your shell::
 
     $ curl -sSf https://static.rust-lang.org/rustup.sh | sh
 
@@ -128,3 +129,4 @@ TODO
 .. _master branch:    https://github.com/mattias-p/digraph123/tree/master
 .. _Github repo:      https://github.com/mattias-p/digraph123
 .. _Creative Commons: https://creativecommons.org/
+.. _Rustup:           https://rustup.rs/
