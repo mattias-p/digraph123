@@ -10,7 +10,6 @@ extern crate lazy_static;
 mod digraph;
 mod stream;
 
-use std::error::Error;
 use std::fs;
 use std::io;
 use std::io::Write;
